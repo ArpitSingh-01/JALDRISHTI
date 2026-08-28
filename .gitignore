@@ -1,0 +1,53 @@
+# ---- data & outputs (large binaries, never commit) ----
+# Leading slash ANCHORS these to the repo root. Without it, `data/` would match a
+# directory named `data` at ANY depth — silently swallowing tests/data/,
+# jaldrishti/data/, frontend/data/ and so on. That failure mode is invisible:
+# `git add` simply does nothing and you find out much later.
+/data/*
+/outputs/*
+# Negations must target contents, not the directory itself. If `/data/` were
+# ignored outright, git would never descend into it and `!/data/.gitkeep` could
+# never match. Ignoring `/data/*` keeps the directory visible so this works.
+!/data/.gitkeep
+!/outputs/.gitkeep
+
+# large geospatial / simulation binaries, wherever they land
+*.tif
+*.tiff
+*.vrt
+*.hgt
+*.zip
+*.nc
+*.slf
+*.tsh
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+/env/
+.conda/
+
+# ---- secrets ----
+.env
+*.credentials
+service-account*.json
+*-privatekey.json
+
+# ---- node / frontend ----
+node_modules/
+.next/
+out/
+dist/
+
+# ---- local tooling state (personal, not project source) ----
+.claude/settings.local.json
+
+# ---- os / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

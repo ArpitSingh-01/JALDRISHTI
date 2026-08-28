@@ -1,0 +1,24 @@
+# Malpasset 1959 — flood-wave arrival times inferred from the shutdown times of
+# three electrical transformers destroyed by the wave.
+# Frame: EDF local planimetric coordinate system of the Malpasset mesh (metres).
+#
+# at_obs_s is referenced to an assumed breach instant and therefore carries an
+# unknown absolute offset. Transformer A sat at the valley bottom just below the
+# dam, so its shutdown time is taken as the wave arrival time. For B and C the
+# shutdown time lies somewhere BETWEEN wave arrival and peak level, so treat
+# these as upper bounds on arrival.
+# => Validate on the RELATIVE times (B-A = 1140 s, C-A = 1320 s), which is what
+#    the official TELEMAC-2D case reports. Absolute times are datum-dependent.
+#
+# ds_from_prev_m: centreline distance from the PREVIOUS transformer. NOTE the
+#   source caption says "to the following one", but the arithmetic proves it is
+#   from the previous: 6502/(1240-100)=5.70 m/s and 1230/(1420-1240)=6.83 m/s.
+# x_telemac_m: coordinate hardcoded in the official openTELEMAC case
+#   (user_fortran/utimp_telemac2d.f). Differs from the paper only for A, by 50 m.
+#
+# Sources: Biscarini et al. (2016), Water 8(11):545, Table 2, doi:10.3390/w8110545;
+#          openTELEMAC examples/telemac2d/malpasset/user_fortran/utimp_telemac2d.f
+transformer,x_m,y_m,x_telemac_m,at_obs_s,at_rel_to_A_s,ds_from_prev_m,v_obs_ms
+A,5500,4400,5550,100,0,,
+B,11900,3250,11900,1240,1140,6502,5.70
+C,13000,2700,13000,1420,1320,1230,6.83

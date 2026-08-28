@@ -1,0 +1,25 @@
+# Malpasset 1959 — maximum water-surface elevations surveyed by the French police
+# after the dam break. 17-point standard validation subset.
+# Frame: EDF local planimetric coordinate system of the Malpasset mesh (metres).
+# ws_obs_m: maximum water-SURFACE ELEVATION, metres, same vertical datum as the
+#           100.0 m initial reservoir level (i.e. approx. m a.s.l.). NOT depth.
+# Source: Biscarini, Di Francesco, Ridolfi & Manciola (2016), Water 8(11):545,
+#         Table 3. doi:10.3390/w8110545 (CC-BY).
+point,x_m,y_m,bank,ws_obs_m
+P1,4913.1,4244.0,right,79.15
+P2,5159.7,4369.6,left,87.20
+P3,5790.6,4177.7,right,54.90
+P4,5886.5,4503.9,left,64.70
+P5,6763.0,3429.6,right,51.10
+P6,6929.9,3591.8,left,43.75
+P7,7326.0,2948.7,right,44.35
+P8,7451.0,3232.1,left,38.60
+P9,8735.9,3264.6,right,31.90
+P10,8628.6,3604.6,left,40.75
+P11,9761.1,3480.3,left,24.15
+P12,9832.9,2414.7,right,24.90
+P13,10957.2,2651.9,right,17.25
+P14,11115.7,3800.7,left,20.70
+P15,11689.0,2592.3,right,18.60
+P16,11626.0,3406.8,left,17.25
+P17,12333.7,2269.7,right,14.00

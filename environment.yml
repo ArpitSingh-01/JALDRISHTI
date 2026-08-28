@@ -1,0 +1,76 @@
+# JALDRISHTI — conda environment
+#
+# Create with:   conda env create -f environment.yml
+# Activate with: conda activate jaldrishti
+#
+# DESIGN RULE: there is deliberately NO `pip:` section. Every dependency below is
+# available on conda-forge. Mixing pip into a GDAL-linked environment on Windows
+# is the single most common way to end up with a broken geospatial stack — pip
+# will happily "upgrade" conda's rasterio/geopandas to wheel builds that bundle a
+# *different* GDAL, and the resulting errors are opaque. If you need a new package,
+# check conda-forge first. Only fall back to pip for something genuinely absent,
+# and then install it with `--no-deps`.
+
+name: jaldrishti
+channels:
+  - conda-forge
+dependencies:
+  # ---- core ----
+  - python=3.11             # 3.11 chosen for widest binary support across the geo
+                            # stack; Numba does the heavy lifting so the interpreter
+                            # version costs us nothing in solver speed
+  - numpy                   # intentionally UNPINNED — numba declares its own numpy
+                            # ceiling, so conda resolves a compatible pair for us.
+                            # Pinning numpy here fights the solver and loses.
+  - scipy
+  - numba                   # JIT for the shallow-water solver. Without this the
+                            # solver is ~100x too slow to be interactive.
+  - pandas
+
+  # ---- geospatial ----
+  # NOTE: no `gdal` entry. rasterio/fiona/pyogrio link libgdal themselves; adding
+  # the `gdal` Python bindings on top gives two competing APIs over one library.
+  - rasterio                # raster I/O, rasterize/polygonise
+  - rioxarray               # labelled raster arrays
+  - xarray
+  - geopandas               # vector dataframes; Shapefile export (PS deliverable iii)
+  - pyogrio                 # fast vector I/O backend for geopandas
+  - shapely                 # geometry ops
+  - fiona                   # OGR bindings (geopandas fallback engine)
+  - pyproj                  # CRS transforms / reprojection
+  - rasterstats             # zonal statistics for exposure analysis
+  - scikit-image            # morphology + contouring to clean inundation polygons
+  - netcdf4                 # NetCDF I/O — required for the Delft3D-FM (UGRID)
+                            # compatible case exporter, PS deliverable i
+  - pysheds                 # DEM hydrological conditioning: pit fill, flow routing
+  - rio-cogeo               # Cloud-Optimised GeoTIFF — the honest answer to the
+                            # PS's "must support large volume of data"
+  - simplekml               # KML export (PS deliverable iii, named explicitly)
+  - osmnx                   # OSM buildings/roads for infrastructure exposure
+  - earthengine-api         # Sentinel-1 SAR flood observation (PS deliverable iv)
+
+  # ---- visualisation / figures for the deck ----
+  - matplotlib-base         # -base avoids dragging in Qt (~100 MB) we never use;
+                            # charts are rendered headless to PNG
+  - contextily              # basemap tiles under QGIS-style figures
+  - imageio                 # animation frames -> GIF/MP4
+  - reportlab               # response-ready PDF reports
+
+  # ---- API layer ----
+  - fastapi
+  - uvicorn
+  - pydantic
+  - websockets              # live progress streaming during a run
+  - python-multipart
+  - httpx                   # async HTTP client (DEM/tile fetching, tests)
+
+  # ---- utilities ----
+  - requests
+  - tqdm
+  - pyyaml
+  - jupyterlab              # interactive solver debugging — field inspection beats
+                            # print statements when chasing wetting/drying bugs
+  - ipympl                  # interactive matplotlib inside JupyterLab
+
+  # ---- testing ----
+  - pytest
