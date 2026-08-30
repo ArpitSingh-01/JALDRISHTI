@@ -11,12 +11,23 @@
 !/data/.gitkeep
 !/outputs/.gitkeep
 
+# The backend writes its run directories to backend/outputs/, which the root
+# anchor above does NOT match — that is the whole point of the anchor, and the
+# cost of it. `scenario/run.py` writes one directory per simulation run, and a
+# single run is ~50 files: report.pdf, five KMZs, figure PNGs, metadata.json,
+# MANIFEST.json, README.txt and the QGIS .qml styles. None of those are caught
+# by the format patterns below, so without this rule every run you do lands in
+# `git status` and eventually in a commit.
+/backend/outputs/*
+!/backend/outputs/.gitkeep
+
 # large geospatial / simulation binaries, wherever they land
 *.tif
 *.tiff
 *.vrt
 *.hgt
 *.zip
+*.kmz
 *.nc
 *.slf
 *.tsh

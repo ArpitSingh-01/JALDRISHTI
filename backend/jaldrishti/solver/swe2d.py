@@ -102,6 +102,19 @@ BC_WALL = 0        # reflective / solid: mirror depth, negate normal momentum
 BC_OPEN = 1        # transmissive: zero-gradient outflow, water leaves freely
 BC_CODES = {"wall": BC_WALL, "open": BC_OPEN}
 
+# How many cells inward from an OPEN boundary the transmissive condition
+# measurably contaminates the solution. A zero-gradient outflow cannot be exact
+# for both still water and uniform flow on a slope (see _extend_static for the
+# derivation and the measurements); we choose the still-water-exact form, which
+# leaves a backwater at the outflow decaying from +37% depth in the edge cell to
+# under 1% by the eighth cell. Ten is that measured extent with margin.
+#
+# This is a REPORTING mask, not a solver parameter — nothing in the timestep
+# reads it. Results within this many cells of an open boundary should not be
+# quoted, and the domain must therefore extend at least this far beyond anything
+# of interest: 900 m at 90 m resolution, 300 m at 30 m.
+OPEN_BC_INFLUENCE_CELLS = 10
+
 
 # =============================================================================
 # Numba kernels
@@ -430,7 +443,14 @@ def _apply_friction(h, hu, hv, n_man, dt, g, h_min, ng):
 
     The friction slope gives d(hu)/dt = -Cf*hu with
 
-        Cf = g * n^2 * |U| / h^(7/3),      |U| = sqrt(u^2 + v^2)
+        Cf = g * n^2 * |U| / h^(4/3),      |U| = sqrt(u^2 + v^2)
+
+    Note the exponent is 4/3 with |U| (a VELOCITY) in the numerator. Cf is a
+    rate, so it must have units of 1/s: g*n^2*|U|/h^(4/3) does, and the same
+    expression over h^(7/3) does not. The code below writes it over h^(7/3)
+    because it uses the conserved momentum q = h*|U| in the numerator instead,
+    which is algebraically identical -- see the comment at the cf assignment,
+    which also records the bug this replaced.
 
     Explicit integration of this is stiff in shallow water: as h -> 0, Cf blows
     up and an explicit step overshoots through zero, reversing the flow and
@@ -442,6 +462,22 @@ def _apply_friction(h, hu, hv, n_man, dt, g, h_min, ng):
     correctly drives it towards zero. This is standard practice and it is the
     difference between a solver that survives a thin sheet of water spreading
     over a floodplain and one that does not.
+
+    It is also better than merely stable: with h held fixed the substep is the
+    EXACT solution of its own ODE. dU/dt = -k|U|U with k = g*n^2/h^(4/3) has the
+    solution U(t) = U0 / (1 + k*|U0|*t), and evaluating Cf at U0 reproduces that
+    at t = dt for ANY dt, not just small ones. Direction is preserved so |U|
+    obeys the scalar ODE in 2D too. Consequence: the whole friction time-error
+    budget lives in the operator split, not here. Because Cf is evaluated after
+    the hyperbolic update rather than before, steady state lands slightly below
+    Manning normal velocity,
+
+        u_steady / u_normal = 1 - dt*g*S0 / (2*u_normal) + O(dt^2),
+
+    which is sub-percent at the working timestep and biases arrival times LATE
+    (the safe direction for an evacuation product). It grows as dt*g*S0/u, so
+    shallow slow flow on a coarse grid is where it matters. Both properties are
+    asserted in tests/test_friction.py.
     """
     ny, nx = h.shape
     for j in range(ng, ny - ng):
@@ -457,8 +493,19 @@ def _apply_friction(h, hu, hv, n_man, dt, g, h_min, ng):
             if q <= 0.0:
                 continue
             nm = n_man[j, i]
-            # |U| = q/h, and h^(4/3) from the Manning form, giving h^(7/3) total
-            cf = g * nm * nm * (q / hij) / (hij ** (7.0 / 3.0))
+            # Cf = g * n^2 * |U| / h^(4/3). Written in terms of the CONSERVED
+            # momentum q = h*|U| this is g * n^2 * q / h^(7/3), which is the form
+            # used here because q is what we already have.
+            #
+            # Do NOT also divide q by h. That was the original bug: it computed
+            # g*n^2*|U|/h^(7/3), which has units of 1/(m*s) rather than 1/s and
+            # is wrong by exactly a factor of h. It over-damped thin films by 10x
+            # at 0.1 m and under-damped deep flow by 20x at 20 m, so a forested
+            # gorge at n = 0.087 behaved like smooth concrete and every arrival
+            # time came out far too early. Nothing caught it because Ritter,
+            # Stoker and lake-at-rest are all frictionless. The check that pins
+            # it down is Manning normal depth — see tests/test_friction.py.
+            cf = g * nm * nm * q / (hij ** (7.0 / 3.0))
             denom = 1.0 + dt * cf
             # In a very thin film h^(7/3) -> 0 makes Cf enormous, which is
             # physically correct (such a film IS friction-dominated) but can
@@ -562,6 +609,78 @@ def _blend_state(h, hu, hv, h0, hu0, hv0, ng):
             hv[j, i] = 0.5 * (hv0[j, i] + hv[j, i])
 
 
+@njit(**_JIT)
+def _add_source(dh, dhu, dhv, cj, ci, rate, mom_x, mom_y):
+    """
+    Inject a volumetric source into the right-hand side.
+
+    `rate[k]` is Q_k/(dx*dy) in m/s — the rate at which depth grows in cell k.
+    `mom_x/y[k]` is Q_k*U*e/(dx*dy) in m^2/s^2, the matching momentum influx.
+
+    Because mass and momentum are added in a fixed ratio U, the injected water
+    has velocity exactly U from the very first step: hu/h = (rate*U*dt)/(rate*dt).
+    That self-consistency is what stops an inflow into a dry cell from producing
+    a spurious velocity spike, which is the usual failure mode of a naive source
+    term.
+
+    Added to the RHS rather than applied as an operator split, so the source
+    participates in both RK stages and is integrated to the same second-order
+    accuracy as the fluxes. A hydrograph near its peak changes appreciably within
+    one timestep, and splitting it would evaluate it at one time only.
+    """
+    for k in range(cj.size):
+        j = cj[k]
+        i = ci[k]
+        dh[j, i] += rate[k]
+        dhu[j, i] += mom_x[k]
+        dhv[j, i] += mom_y[k]
+
+
+@njit(**_JIT)
+def _accumulate_fields(h, hu, hv, h_min, t, thresh,
+                       h_max, speed_max, dv_max, t_arrival, ng):
+    """
+    Update the running maxima and first-arrival time over the whole domain.
+
+    WHY THIS IS A KERNEL AND NOT A CALLBACK
+    ---------------------------------------
+    Arrival time is this project's headline output, and it is a FIRST-CROSSING
+    time: sampling it every few seconds of model time would quantise it to the
+    sampling interval and, worse, would miss the maximum depth entirely if the
+    peak passed between samples. It has to be evaluated every step.
+
+    A Python callback doing that on a million-cell array 20,000 times costs
+    minutes. In Numba it costs a few percent of one flux evaluation, so there is
+    no reason to compromise.
+
+    `t_arrival` uses -1 as "never arrived" rather than NaN, because a NaN
+    comparison is always false and the `< 0.0` test would then never fire, so the
+    first arrival would never be recorded. The public accessor converts to NaN.
+    """
+    ny, nx = h.shape
+    for j in range(ng, ny - ng):
+        for i in range(ng, nx - ng):
+            hij = h[j, i]
+            if hij > h_max[j, i]:
+                h_max[j, i] = hij
+            if hij > h_min:
+                u = _desing_vel(hij, hu[j, i], h_min)
+                v = _desing_vel(hij, hv[j, i], h_min)
+                s = math.sqrt(u * u + v * v)
+                if s > speed_max[j, i]:
+                    speed_max[j, i] = s
+                # Depth x velocity: the standard hazard variable, because it is
+                # proportional to the drag force per unit width on a person or
+                # a wall. Tracked as its own maximum, NOT as h_max*speed_max,
+                # which would multiply two peaks that occur at different times
+                # and overstate the hazard.
+                dv = hij * s
+                if dv > dv_max[j, i]:
+                    dv_max[j, i] = dv
+            if hij >= thresh and t_arrival[j, i] < 0.0:
+                t_arrival[j, i] = t
+
+
 # =============================================================================
 # Python-level driver
 # =============================================================================
@@ -573,17 +692,148 @@ class RunStats:
     t: float = 0.0
     volume_initial: float = 0.0
     volume_final: float = 0.0
+    volume_injected: float = 0.0
     mass_clipped: float = 0.0
     dt_min: float = float("inf")
     dt_max: float = 0.0
-    history: list = field(default_factory=list)   # (t, volume, dt)
+    history: list = field(default_factory=list)   # (t, volume, dt, Q_in)
 
     @property
     def volume_error(self) -> float:
-        """Relative mass-conservation error. Should be ~1e-14, not ~1e-3."""
-        if self.volume_initial == 0.0:
+        """
+        Relative mass-conservation error. Should be ~1e-14, not ~1e-3.
+
+        Injected volume is credited, so a run with an inflow hydrograph is held
+        to the same standard as a closed one. With OPEN boundaries this becomes a
+        lower bound on conservation rather than a test of it, because water is
+        legitimately allowed to leave the domain — use walls when the intent is
+        to verify conservation.
+        """
+        expected = self.volume_initial + self.volume_injected
+        if expected == 0.0:
             return 0.0
-        return (self.volume_final - self.volume_initial) / self.volume_initial
+        return (self.volume_final - expected) / expected
+
+
+@dataclass
+class Inflow:
+    """
+    A discharge hydrograph injected over a set of cells.
+
+    This is the solver's interface to the outside world, and it is deliberately
+    the ONLY one. A dam breach, an SPH near-field handover, a gauged tributary
+    and a published design flood all arrive here as Q(t), so the routing core
+    never learns which it was.
+
+    Parameters
+    ----------
+    cells     : (N, 2) array of interior (j, i) indices to inject into
+    q         : callable t -> TOTAL discharge across all cells, m^3/s
+    direction : (ex, ey) unit vector for the momentum, or None for mass only
+    speed     : callable t -> inflow speed (m/s), or a constant. Required when
+                direction is set.
+    weights   : per-cell share of the discharge; defaults to equal.
+
+    MASS-ONLY VERSUS DIRECTED
+    -------------------------
+    With direction=None only mass is added and the water leaves the source cells
+    under its own pressure gradient. That is the conservative default: it assumes
+    nothing about the jet, and on the steep Himalayan gradients of our study
+    reaches the terrain establishes the flow direction within a few cells anyway.
+
+    Its weakness is at the very start, where a mound of water on a flat-ish reach
+    spreads in all directions including upstream. Supplying direction and speed
+    fixes that, and for a dam breach both are known rather than guessed: flow at
+    a breach is critical, so U = sqrt(g*h_c) with h_c = 2H/3 — which is exactly
+    the velocity `scenario.breach` reports alongside the discharge.
+    """
+    cells: np.ndarray
+    q: object
+    direction: tuple | None = None
+    speed: object = None
+    weights: np.ndarray | None = None
+    label: str = "inflow"
+
+    def __post_init__(self):
+        cells = np.asarray(self.cells, dtype=np.int64)
+        if cells.ndim == 1:
+            cells = cells.reshape(1, 2)
+        if cells.ndim != 2 or cells.shape[1] != 2:
+            raise ValueError("cells must be an (N, 2) array of (j, i) indices")
+        if cells.shape[0] == 0:
+            raise ValueError("inflow has no cells")
+        self.cells = cells
+
+        if self.weights is None:
+            w = np.full(cells.shape[0], 1.0 / cells.shape[0])
+        else:
+            w = np.asarray(self.weights, dtype=np.float64).ravel()
+            if w.size != cells.shape[0]:
+                raise ValueError("weights must have one entry per cell")
+            if (w < 0).any():
+                raise ValueError("weights must be non-negative")
+            tot = w.sum()
+            if tot <= 0:
+                raise ValueError("weights sum to zero")
+            w = w / tot
+        self._w = w
+
+        if self.direction is not None:
+            ex, ey = self.direction
+            norm = math.hypot(ex, ey)
+            if norm <= 0:
+                raise ValueError("direction must be a non-zero vector")
+            self.direction = (ex / norm, ey / norm)
+            if self.speed is None:
+                raise ValueError(
+                    "an inflow with a direction needs a speed; pass speed=, or "
+                    "drop direction= for a mass-only source")
+
+        # Ghost-offset index arrays and scratch, allocated once.
+        self._cj = cells[:, 0] + NG
+        self._ci = cells[:, 1] + NG
+        self._rate = np.zeros(cells.shape[0], dtype=np.float64)
+        self._mx = np.zeros(cells.shape[0], dtype=np.float64)
+        self._my = np.zeros(cells.shape[0], dtype=np.float64)
+
+    def discharge(self, t: float) -> float:
+        return float(self.q(t)) if callable(self.q) else float(self.q)
+
+    def inflow_speed(self, t: float) -> float:
+        if self.speed is None:
+            return 0.0
+        return float(self.speed(t)) if callable(self.speed) else float(self.speed)
+
+
+@dataclass
+class FieldAccumulator:
+    """
+    Running maxima and first-arrival time, updated every timestep.
+
+    These four arrays ARE the product's outputs. Everything the dashboard shows
+    and everything the exposure analysis counts derives from them, so they are
+    accumulated inside the time loop where they can be exact, rather than
+    reconstructed afterwards from saved frames.
+
+    Arrays are padded like the state arrays; use the solver's properties for
+    interior views.
+    """
+    h_max: np.ndarray
+    speed_max: np.ndarray
+    dv_max: np.ndarray
+    t_arrival: np.ndarray
+    threshold: float
+
+    @classmethod
+    def zeros(cls, shape, threshold: float):
+        return cls(
+            h_max=np.zeros(shape, dtype=np.float64),
+            speed_max=np.zeros(shape, dtype=np.float64),
+            dv_max=np.zeros(shape, dtype=np.float64),
+            # -1 = never arrived. See _accumulate_fields for why not NaN.
+            t_arrival=np.full(shape, -1.0, dtype=np.float64),
+            threshold=float(threshold),
+        )
 
 
 class SWE2D:
@@ -666,6 +916,9 @@ class SWE2D:
 
         self.t = 0.0
         self.stats = RunStats()
+        self._inflows: list = []
+        self._acc: FieldAccumulator | None = None
+        self._q_in = 0.0        # total inflow discharge over the last step
 
     # ---- geometry helpers ------------------------------------------------
     def _extend_static(self, a):
@@ -678,11 +931,58 @@ class SWE2D:
         mirrored the same way. Otherwise eta = h + z in the ghost cells is not the
         mirror image of eta inside, the reconstructed slopes are not antisymmetric,
         and a small mass flux leaks through what is meant to be a solid wall.
-        Open boundaries want the opposite — zero gradient, i.e. a plain copy.
+        Open boundaries want the opposite -- zero gradient, i.e. a plain copy.
 
         Corners are handled by ordering: x first over all rows, then y over all
         columns, so the y pass reads ghost columns that are already populated.
         `_fill_ghosts` uses the same order, keeping the two consistent.
+
+        THE FLAT COPY AT AN OPEN BOUNDARY IS A DELIBERATE TRADE-OFF
+        ----------------------------------------------------------
+        Copying the bed flat means the bed STOPS SLOPING at an open boundary. The
+        limiter then sees the stencil (z_edge, z_edge, z_inner), whose one-sided
+        differences have opposite signs, so it returns exactly zero: the last
+        interior cell loses its bed-slope forcing entirely. On a sloping bed that
+        produces a backwater at the outflow. Measured on a uniform channel
+        (S0 = 0.002, n = 0.033, h = 2 m, dx = 100 m), depth above normal:
+
+            edge cell  +36.9% | -1 +29.9% | -2 +22.3% | -3 +15.7%
+            -4 +10.2%  | -6 +3.1% | -8 +0.5% | -12 and beyond  0.0%
+
+        so the artefact is confined to roughly 8 cells and decays geometrically.
+        See OPEN_BC_INFLUENCE_CELLS below.
+
+        The obvious "fix" -- continuing the bed slope into the ghosts -- makes
+        uniform flow EXACT (deviation 0.0, mass error 0.0) and is catastrophically
+        wrong anyway, because it breaks lake-at-rest. With the bed continued, a
+        zero-gradient copy of h gives a ghost eta that is no longer level with the
+        interior, so still water on a slope accelerates. Measured on the same bed
+        with all four boundaries open, 200 steps from rest:
+
+            bed ghosts flat-copied :  max|u| = 2.2e-14 m/s, mass drift  0.0
+            bed ghosts continued   :  max|u| = 1.63    m/s, mass drift -2.1%
+
+        and the continued case is still accelerating at that point. Run to steady
+        state (eta0 = 5 m, initial depth 5 -> 26 m) it converges to something
+        unambiguous: depth uniform at 7.71 m, speed 5.275 m/s, which is Manning
+        normal velocity for 7.71 m to within 0.2% -- with 54% of the water gone.
+
+        The still lake has become a uniform-flow river. That is the failure mode
+        the well-balanced property exists to prevent, and it is far worse than a
+        bounded backwater: a spurious current appears everywhere there is water,
+        not just near a boundary, and no grid refinement helps because it is not a
+        discretisation error.
+
+        The two conditions genuinely conflict. h-copy plus a continued bed is
+        right for flowing water; h-copy plus a flat bed is right for still water.
+        No zero-gradient transmissive boundary can be exact for both -- that needs
+        a characteristic/radiation condition, which is a much larger change and
+        buys nothing for this application. We keep the still-water-exact choice,
+        because a model that invents flow in a reservoir is unusable, whereas a
+        known artefact in the last few cells of the outflow is simply masked.
+
+        Both halves are pinned in tests/test_boundaries.py so neither can
+        regress silently.
         """
         ng = NG
         bw, be, bs, bn = self.bc
@@ -794,6 +1094,159 @@ class SWE2D:
         """Total water volume, m^3."""
         return _total_volume(self._h, self.dx, self.dy, NG)
 
+    # ---- inflow sources --------------------------------------------------
+    def add_inflow(self, cells, q, *, direction=None, speed=None,
+                   weights=None, label="inflow") -> Inflow:
+        """
+        Register a discharge hydrograph Q(t) injected over `cells`.
+
+        This is how a dam breach enters the simulation. `scenario.breach`
+        produces Q(t) and the critical velocity U(t) at the breach; both are
+        passed straight through, so the momentum of the incoming water is
+        derived from weir hydraulics rather than assumed.
+
+        Parameters
+        ----------
+        cells     : (N, 2) array of interior (j, i) indices, or a single (j, i)
+        q         : float or callable t -> total discharge, m^3/s
+        direction : (ex, ey) flow direction; None injects mass only
+        speed     : float or callable t -> speed, m/s (required with direction)
+        weights   : per-cell share of Q; defaults to equal split
+
+        Returns the Inflow so the caller can keep a handle on it.
+        """
+        cells = np.asarray(cells, dtype=np.int64)
+        if cells.ndim == 1:
+            cells = cells.reshape(1, 2)
+        if cells.size and (
+                (cells[:, 0] < 0).any() or (cells[:, 0] >= self.ny).any()
+                or (cells[:, 1] < 0).any() or (cells[:, 1] >= self.nx).any()):
+            raise ValueError(
+                "inflow cells fall outside the interior domain "
+                f"(0..{self.ny - 1}, 0..{self.nx - 1})")
+        inf = Inflow(cells=cells, q=q, direction=direction, speed=speed,
+                     weights=weights, label=label)
+        self._inflows.append(inf)
+        return inf
+
+    def _add_sources(self, t: float) -> float:
+        """
+        Add every registered inflow to the current RHS. Returns total Q at t.
+
+        The source goes into the RHS rather than being operator-split onto the
+        state, for a specific reason: a breach hydrograph near its peak changes
+        appreciably within one timestep, and splitting would evaluate it at one
+        instant only. Adding to dh/dhu/dhv lets it participate in both RK2
+        stages and inherit the scheme's second-order accuracy in time.
+
+        Mass goes in at Q/(dx*dy) per unit area and momentum at Q*U*e/(dx*dy),
+        i.e. in fixed ratio U. That ratio is what keeps the scheme safe: the
+        water accumulating in an initially dry cell has hu/h = U exactly from
+        the first step, instead of arriving as mass first and being accelerated
+        afterwards — which is the usual way a naive source term produces a
+        spurious velocity spike and trips the CFL limit.
+        """
+        if not self._inflows:
+            return 0.0
+        w = self._ws
+        cell_area = self.dx * self.dy
+        q_total = 0.0
+        for inf in self._inflows:
+            q = inf.discharge(t)
+            if q == 0.0:
+                continue
+            q_total += q
+            # depth rate, m/s
+            np.multiply(inf._w, q / cell_area, out=inf._rate)
+            if inf.direction is None:
+                inf._mx[:] = 0.0
+                inf._my[:] = 0.0
+            else:
+                u = inf.inflow_speed(t)
+                ex, ey = inf.direction
+                np.multiply(inf._rate, u * ex, out=inf._mx)
+                np.multiply(inf._rate, u * ey, out=inf._my)
+            _add_source(w["dh"], w["dhu"], w["dhv"],
+                        inf._cj, inf._ci, inf._rate, inf._mx, inf._my)
+        return q_total
+
+    # ---- output accumulation ---------------------------------------------
+    def track_maxima(self, threshold=0.1) -> FieldAccumulator:
+        """
+        Start accumulating max depth, max speed, max depth*velocity and first
+        arrival time, updated every timestep.
+
+        `threshold` is the depth (m) that counts as "flooded" for arrival time.
+        0.1 m is the usual choice: below roughly that, a DEM at 30-90 m cannot
+        distinguish real sheet flow from interpolation noise, so a smaller
+        threshold reports arrival times the terrain does not support.
+
+        Arrival time MUST be accumulated in the time loop rather than sampled
+        from saved frames. It is a first-crossing time, so sampling quantises it
+        to the frame interval and a short-lived peak between frames is missed
+        entirely — and arrival time is the number this whole product exists to
+        report.
+        """
+        if threshold <= 0:
+            raise ValueError("threshold must be positive")
+        shape = self._h.shape
+        self._acc = FieldAccumulator.zeros(shape, threshold)
+        # Seed with the initial condition, so a cell that starts wet (the
+        # reservoir) reports arrival time 0 rather than never arriving.
+        self._accumulate()
+        return self._acc
+
+    def _accumulate(self):
+        acc = self._acc
+        if acc is None:
+            return
+        _accumulate_fields(self._h, self._hu, self._hv, self.h_min,
+                           self.t, acc.threshold,
+                           acc.h_max, acc.speed_max, acc.dv_max,
+                           acc.t_arrival, NG)
+
+    def _require_acc(self, what):
+        if self._acc is None:
+            raise RuntimeError(
+                f"{what} needs track_maxima() to have been called before the run")
+        return self._acc
+
+    @property
+    def max_depth(self):
+        """Maximum depth reached in each cell over the run, m."""
+        return self._require_acc("max_depth").h_max[NG:-NG, NG:-NG]
+
+    @property
+    def max_speed(self):
+        """Maximum flow speed reached in each cell, m/s."""
+        return self._require_acc("max_speed").speed_max[NG:-NG, NG:-NG]
+
+    @property
+    def max_dv(self):
+        """
+        Maximum depth*velocity, m^2/s — the standard hazard variable.
+
+        Tracked as its own running maximum, NOT as max_depth * max_speed. The
+        latter multiplies two peaks that generally occur at different times and
+        overstates the hazard, sometimes badly: the leading edge of a dam-break
+        wave is fast and shallow, the later body is deep and slow.
+        """
+        return self._require_acc("max_dv").dv_max[NG:-NG, NG:-NG]
+
+    @property
+    def arrival_time(self):
+        """
+        First time each cell exceeded the arrival threshold, seconds.
+
+        NaN where the water never arrived. The internal sentinel is -1 because a
+        NaN comparison is always false, so `t_arrival < 0` would never fire and
+        arrival would never be recorded at all.
+        """
+        acc = self._require_acc("arrival_time")
+        out = acc.t_arrival[NG:-NG, NG:-NG].copy()
+        out[out < 0.0] = np.nan
+        return out
+
     # ---- time stepping ---------------------------------------------------
     def compute_dt(self, dt_max=None) -> float:
         """
@@ -808,9 +1261,51 @@ class SWE2D:
         if worst <= 0.0:
             # Entirely dry (or entirely still and dry): nothing can move, so any
             # step is stable. Return the cap rather than infinity.
-            return dt_max if dt_max else 1.0
-        dt = self.cfl / worst
-        return min(dt, dt_max) if dt_max else dt
+            dt = dt_max if dt_max else 1.0
+        else:
+            dt = self.cfl / worst
+            if dt_max:
+                dt = min(dt, dt_max)
+        if self._inflows:
+            dt = self._inflow_dt_limit(self.t, dt)
+        return dt
+
+    def _inflow_dt_limit(self, t, dt_guess):
+        """
+        Cap dt so an injection into a dry cell cannot violate CFL.
+
+        With a dry domain `_max_speeds` finds nothing to limit on and hands back
+        the cap. A large hydrograph injected over that step then creates a deep,
+        fast cell in one go — and the CFL limit for the step that just created it
+        was computed from the state before it existed. So the source has to carry
+        its own limit; this is the first thing that breaks when a real breach
+        hydrograph meets a dry channel.
+
+        The condition is implicit: the depth created depends on dt, and the wave
+        speed depends on that depth. Iterating downwards from the current guess
+        converges immediately and errs on the safe side, since each pass uses the
+        larger depth estimate from the pass before.
+        """
+        dt = dt_guess
+        area = self.dx * self.dy
+        for _ in range(2):
+            worst = 0.0
+            for inf in self._inflows:
+                q = inf.discharge(t)
+                if q <= 0.0:
+                    continue
+                # Worst single cell, not the average: an inflow weighted onto
+                # one cell of many is limited by that cell.
+                rate = float(inf._w.max()) * q / area
+                h = rate * dt
+                if h <= self.h_min:
+                    continue
+                c = math.sqrt(self.g * h) + abs(inf.inflow_speed(t))
+                worst = max(worst, c / self.dx + c / self.dy)
+            if worst <= 0.0:
+                break
+            dt = min(dt, self.cfl / worst)
+        return dt
 
     def _eval_rhs(self):
         w = self._ws
@@ -855,6 +1350,7 @@ class SWE2D:
 
         # stage 1: q* = q^n + dt*L(q^n)
         self._eval_rhs()
+        q1 = self._add_sources(self.t)
         _axpy_state(self._h, self._hu, self._hv,
                     w["dh"], w["dhu"], w["dhv"], dt, NG)
         self.stats.mass_clipped += _clean_dry(self._h, self._hu, self._hv,
@@ -862,12 +1358,21 @@ class SWE2D:
 
         # stage 2: q^{n+1} = 0.5*(q^n + (q* + dt*L(q*)))
         self._eval_rhs()
+        q2 = self._add_sources(self.t + dt)
         _axpy_state(self._h, self._hu, self._hv,
                     w["dh"], w["dhu"], w["dhv"], dt, NG)
         _blend_state(self._h, self._hu, self._hv,
                      w["h0"], w["hu0"], w["hv0"], NG)
         self.stats.mass_clipped += _clean_dry(self._h, self._hu, self._hv,
                                               self.h_min, self.dx, self.dy, NG)
+
+        # Heun applied to a source term is the trapezoidal rule, so this is not
+        # an approximation of the injected volume — it is exactly what the two
+        # stages above put into the domain, which is what makes the mass balance
+        # a real check on an inflow run rather than a self-fulfilling one.
+        if self._inflows:
+            self.stats.volume_injected += 0.5 * (q1 + q2) * dt
+        self._q_in = 0.5 * (q1 + q2)
 
         # Friction is applied as an operator split after the hyperbolic update.
         # It is a local sink with no spatial coupling, so splitting it costs
@@ -881,6 +1386,11 @@ class SWE2D:
         self.stats.t = self.t
         self.stats.dt_min = min(self.stats.dt_min, dt)
         self.stats.dt_max = max(self.stats.dt_max, dt)
+
+        # Accumulate AFTER the state is final for this step, and at the new t,
+        # so a reported arrival time is a time at which the depth genuinely
+        # exceeded the threshold in the solution we keep.
+        self._accumulate()
         return dt
 
     def run(self, t_end, *, dt_max=None, callback=None, callback_every=None,
@@ -889,9 +1399,11 @@ class SWE2D:
         Integrate to `t_end`.
 
         `callback(solver)` fires every `callback_every` seconds of model time —
-        that is the hook for saving frames, sampling gauges and accumulating
-        arrival time. `log_every` records (t, volume, dt) into stats.history so
-        mass conservation can be plotted rather than merely asserted.
+        that is the hook for saving frames and sampling gauges. Arrival time and
+        the running maxima are NOT sampled here; call `track_maxima()` and they
+        are accumulated every step instead. `log_every` records
+        (t, volume, dt, Q_in) into stats.history so mass conservation can be
+        plotted rather than merely asserted.
         """
         if self.stats.volume_initial == 0.0 and self.stats.steps == 0:
             self.stats.volume_initial = self.volume()
@@ -899,7 +1411,7 @@ class SWE2D:
         next_cb = self.t + callback_every if callback_every else None
         next_log = self.t + log_every if log_every else None
         if log_every:
-            self.stats.history.append((self.t, self.volume(), 0.0))
+            self.stats.history.append((self.t, self.volume(), 0.0, self._q_in))
 
         while self.t < t_end - 1e-12 and self.stats.steps < max_steps:
             dt = self.compute_dt(dt_max=dt_max)
@@ -913,7 +1425,8 @@ class SWE2D:
                 callback(self)
                 next_cb += callback_every
             if next_log is not None and self.t >= next_log - 1e-12:
-                self.stats.history.append((self.t, self.volume(), dt))
+                self.stats.history.append(
+                    (self.t, self.volume(), dt, self._q_in))
                 next_log += log_every
 
         self.stats.volume_final = self.volume()

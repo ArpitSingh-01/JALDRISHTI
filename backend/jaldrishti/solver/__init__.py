@@ -7,6 +7,20 @@ the flood wave across the terrain and produces depth, velocity and arrival time.
 each can be unit-tested and explained on its own.
 """
 
-from .swe2d import GRAVITY, NG, RunStats, SWE2D
+from .swe2d import (
+    GRAVITY,
+    NG,
+    FieldAccumulator,
+    Inflow,
+    RunStats,
+    SWE2D,
+)
 
-__all__ = ["SWE2D", "RunStats", "GRAVITY", "NG"]
+__all__ = [
+    "SWE2D",
+    "Inflow",
+    "FieldAccumulator",
+    "RunStats",
+    "GRAVITY",
+    "NG",
+]
