@@ -1,15 +1,13 @@
 /**
- * API client — LIVE FIRST.
+ * API client — live only.
  *
  * Every call hits the real FastAPI backend at NEXT_PUBLIC_API_BASE and
- * returns REAL simulation output. The mock JSON in src/mocks/ is a
- * development convenience ONLY: it is reachable exclusively when
- * NEXT_PUBLIC_ENABLE_MOCKS=1 is set explicitly in the environment, and any
- * page served from mocks carries a "DEMO DATA" marker so it can never be
- * mistaken for a simulation result.
+ * returns REAL simulation output read from the run bundles. There are no
+ * mocks in this client: if the backend is unreachable, the UI shows an
+ * error state — an honest failure, never fabricated data.
  *
- * There is no silent fallback to mocks. If the backend is unreachable, the
- * UI shows an error state — an honest failure, not fabricated data.
+ * Dev workflow: run `uvicorn jaldrishti.api.app:app --port 8000` in
+ * backend/ and set NEXT_PUBLIC_API_BASE=http://localhost:8000.
  */
 
 import type {
@@ -21,26 +19,6 @@ import type {
 import type { FeatureCollection } from "geojson";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
-const MOCKS_ENABLED =
-  !API_BASE && process.env.NEXT_PUBLIC_ENABLE_MOCKS === "1";
-
-if (MOCKS_ENABLED && typeof window !== "undefined") {
-  // Loud, once, in the console: nobody should screenshot a mocks-driven
-  // page without knowing it.
-  console.warn(
-    "[JALDRISHTI] NEXT_PUBLIC_ENABLE_MOCKS=1 and no NEXT_PUBLIC_API_BASE: " +
-      "this page is showing DEVELOPMENT MOCK DATA, not simulation output."
-  );
-}
-
-/** True when the current page is backed by mock JSON (dev flag only). */
-export const USING_MOCKS = MOCKS_ENABLED;
-
-// ---- Mock imports (only reachable when MOCKS_ENABLED above) ----
-async function loadMock<T>(name: string): Promise<T> {
-  const mod = await import(`@/mocks/${name}`);
-  return mod.default as T;
-}
 
 function requireBase(): string {
   if (!API_BASE) {
@@ -52,90 +30,95 @@ function requireBase(): string {
   return API_BASE;
 }
 
-// ---- Study areas ----
-export async function getStudyAreas(): Promise<StudyAreaSummary[]> {
-  if (MOCKS_ENABLED) return loadMock<StudyAreaSummary[]>("study-areas.json");
-  const res = await fetch(`${requireBase()}/api/study-areas`);
-  if (!res.ok) throw new Error(`Failed to fetch study areas: ${res.status}`);
+async function getJson<T>(path: string): Promise<T> {
+  const res = await fetch(`${requireBase()}${path}`);
+  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
   return res.json();
+}
+
+// ---- Study areas (backend StudyInfo is a superset of the UI summary) ----
+export async function getStudyAreas(): Promise<StudyAreaSummary[]> {
+  const infos = await getJson<Record<string, unknown>[]>("/api/studies");
+  return infos.map((info) => ({
+    key: String(info.key),
+    title: String(info.title),
+    scenario_kind: String(info.scenario_kind) as "dam_break" | "blockage",
+    purpose: String(info.purpose),
+  }));
 }
 
 export async function getStudyArea(key: string): Promise<StudyAreaSummary> {
-  if (MOCKS_ENABLED) {
-    const areas = await getStudyAreas();
-    const area = areas.find((a) => a.key === key);
-    if (!area) throw new Error(`Study area not found: ${key}`);
-    return area;
-  }
-  const res = await fetch(`${requireBase()}/api/study-areas/${key}`);
-  if (!res.ok) throw new Error(`Failed to fetch study area: ${res.status}`);
-  return res.json();
+  const info = await getJson<Record<string, unknown>>(`/api/studies/${key}`);
+  return {
+    key: String(info.key),
+    title: String(info.title),
+    scenario_kind: String(info.scenario_kind) as "dam_break" | "blockage",
+    purpose: String(info.purpose),
+  };
 }
 
-// ---- Runs ----
+// ---- Runs (backend RunStatus mapped to the UI's RunListItem) ----
 export async function getRuns(): Promise<RunListItem[]> {
-  if (MOCKS_ENABLED) {
-    const run = await loadMock<ScenarioSummary>("run-tehri-90m.json");
-    return [
-      {
-        run_id: run.run_id,
-        study_area: run.study_area,
-        scenario: run.scenario,
-        status: "done",
-        headline: run.headline,
-        flooded_area_km2: run.results.flooded_area_km2,
-        first_arrival_min: run.results.first_arrival_min,
-        presentable_as_fact: run.honesty.presentable_as_fact,
-        created_at: new Date().toISOString(),
-      },
-    ];
-  }
-  const res = await fetch(`${requireBase()}/api/runs`);
-  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
-  return res.json();
+  const statuses = await getJson<Record<string, unknown>[]>("/api/runs");
+  return statuses.map(mapRunListItem);
 }
 
 export async function getRun(runId: string): Promise<ScenarioSummary> {
-  if (MOCKS_ENABLED) return loadMock<ScenarioSummary>("run-tehri-90m.json");
-  const res = await fetch(`${requireBase()}/api/runs/${runId}`);
-  if (!res.ok) throw new Error(`Failed to fetch run: ${res.status}`);
-  return res.json();
+  // /result carries the run's full metadata.json — the contract type in
+  // types.ts mirrors exactly this document.
+  return getJson<ScenarioSummary>(`/api/runs/${runId}/result`);
+}
+
+function mapRunListItem(s: Record<string, unknown>): RunListItem {
+  return {
+    run_id: String(s.run_id),
+    study_area: String(s.area ?? ""),
+    scenario: "simulated run",
+    status: String(s.status ?? "unknown") as RunListItem["status"],
+    headline: typeof s.headline === "string" ? s.headline : undefined,
+    flooded_area_km2:
+      typeof s.flooded_area_km2 === "number" ? s.flooded_area_km2 : undefined,
+    first_arrival_min:
+      typeof s.first_arrival_min === "number" ? s.first_arrival_min : null,
+    presentable_as_fact:
+      typeof s.presentable === "boolean" ? s.presentable : undefined,
+    created_at: String(s.submitted_utc ?? s.started_utc ?? ""),
+    completed_at:
+      typeof s.finished_utc === "string" ? s.finished_utc : undefined,
+  };
 }
 
 export async function getManifest(runId: string): Promise<Manifest> {
-  if (MOCKS_ENABLED) return loadMock<Manifest>("manifest-tehri.json");
-  const res = await fetch(`${requireBase()}/api/runs/${runId}/manifest`);
-  if (!res.ok) throw new Error(`Failed to fetch manifest: ${res.status}`);
-  return res.json();
+  return getJson<Manifest>(`/api/runs/${runId}/manifest`);
 }
 
-// ---- Isochrones GeoJSON ----
+// ---- Isochrones GeoJSON (derived live from the run's arrival raster) ----
 export async function getIsochrones(runId: string): Promise<FeatureCollection> {
-  if (MOCKS_ENABLED) return loadMock<FeatureCollection>("isochrones-tehri.json");
-  const res = await fetch(`${requireBase()}/api/runs/${runId}/isochrones.geojson`);
-  if (!res.ok) throw new Error(`Failed to fetch isochrones: ${res.status}`);
-  return res.json();
+  return getJson<FeatureCollection>(`/api/runs/${runId}/isochrones.geojson`);
 }
 
-// ---- Settlements GeoJSON ----
+// ---- Settlements GeoJSON (named places, sampled from the run rasters) ----
 export async function getSettlements(runId: string): Promise<FeatureCollection> {
-  if (MOCKS_ENABLED) return loadMock<FeatureCollection>("settlements-tehri.json");
-  const res = await fetch(`${requireBase()}/api/runs/${runId}/settlements.geojson`);
-  if (!res.ok) throw new Error(`Failed to fetch settlements: ${res.status}`);
-  return res.json();
+  return getJson<FeatureCollection>(`/api/runs/${runId}/settlements.geojson`);
 }
 
-// ---- Create run ----
+// ---- Create run (FastAPI RunRequest: area / dx / duration_hours) ----
 export async function createRun(body: {
   area: string;
-  failure_spec: Record<string, unknown>;
-  resolution: number;
+  resolution?: number;
+  duration_hours?: number;
 }): Promise<{ run_id: string }> {
-  if (MOCKS_ENABLED) return { run_id: "mock-tehri-90m-0001" };
   const res = await fetch(`${requireBase()}/api/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      area: body.area,
+      dx: body.resolution ?? null,
+      duration_hours: body.duration_hours ?? 2.0,
+      exposure: true,
+      damage: false,
+      export_bundle: true,
+    }),
   });
   if (!res.ok) throw new Error(`Failed to create run: ${res.status}`);
   return res.json();
@@ -143,12 +126,5 @@ export async function createRun(body: {
 
 // ---- Download artifact ----
 export function getArtifactUrl(runId: string, key: string): string {
-  if (MOCKS_ENABLED) return "#";
   return `${requireBase()}/api/runs/${runId}/artifacts/${encodeURIComponent(key)}`;
-}
-
-// ---- Tile URL template ----
-export function getTileUrl(runId: string, band: string): string {
-  if (MOCKS_ENABLED) return "";
-  return `${requireBase()}/api/runs/${runId}/tiles/${band}/{z}/{x}/{y}.png`;
 }

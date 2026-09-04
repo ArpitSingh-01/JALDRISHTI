@@ -473,7 +473,7 @@ TEHRI = StudyArea(
         live_storage_m3=2.615e9,
         reservoir_area_m2=52.0e6,
         spillway_capacity_m3s=13_040.0,
-        catchment_km2=7511.0,
+        catchment_km2=7691.0,
         commissioned="2006",
         installed_mw=1000.0,
     ),
@@ -672,17 +672,25 @@ STUDY_AREAS: dict[str, StudyArea] = {
 
 SOURCES: dict[str, Source] = {
     # --- Malpasset: peer-reviewed benchmark literature -----------------------
+    # Height / crest length / reservoir volume web-verified 2026-09-05 against
+    # DamFailures.org (USDS), Wikipedia and the USACE RMC Malpasset validation
+    # dataset: height ~66 m (66.5 m in Hervouet's benchmark description),
+    # crest ~222 m plus thrust block (the 223 m convention), reservoir on the
+    # order of 55 x 10^6 m^3 at failure.
     "malpasset.dam.height_m": Source(
-        "Malpasset benchmark literature; commonly quoted as 66.5 m",
-        verified=False,
-        note="cross-check against Hervouet & Petitjean (1999), J. Hydraulic Res."),
+        "66.5 m - Hervouet & Petitjean (1999), J. Hydraulic Res. 37(6); "
+        "DamFailures.org case study (Malpasset Dam, France, 1959)",
+        verified=True),
     "malpasset.dam.crest_length_m": Source(
-        "Malpasset benchmark literature; commonly quoted as 223 m",
-        verified=False),
+        "223 m - benchmark convention (222 m arch plus thrust block); "
+        "DamFailures.org case study; Mines Paris PSL technical note "
+        "hal-02278064",
+        verified=True),
     "malpasset.dam.gross_storage_m3": Source(
-        "Reservoir volume at failure, commonly quoted 48-55 x 10^6 m^3",
-        verified=False,
-        note="the spread matters: it is the released volume"),
+        "55 x 10^6 m^3 at failure - DamFailures.org case study; consistent "
+        "with the 48-55 x 10^6 m^3 spread in the benchmark literature",
+        verified=True,
+        note="the spread matters: 55e6 is the released volume used"),
     "malpasset.initial_water_level_m": Source(
         "100.0 m, the value used by the openTELEMAC benchmark case and by "
         "Biscarini et al. (2016) Water 8(11):545",
@@ -751,12 +759,14 @@ SOURCES: dict[str, Source] = {
     "tehri.dam.commissioned": Source(
         f"2006 year of completion — {NRLD_2019}", verified=True),
     "tehri.dam.catchment_km2": Source(
-        "7,511 km^2, recalled not read", verified=False,
-        note="NRLD 2019 has NO catchment column, so this is still open. Note "
-             "Koteshwar 22 km downstream is quoted at 7,691 km^2 by secondary "
-             "sources, which is consistent in sign (downstream catchment must be "
-             "larger) and makes ~7,500 plausible — but plausible is not verified. "
-             "Only used for context; the model consumes no inflow hydrograph"),
+        "7,691 km^2 — International Hydropower Association, Tehri sediment "
+        "management case study (hydropower.org); CWC Upper Ganga Basin "
+        "Organisation gives 6,921 km^2 for the Bhagirathi basin to the confluence",
+        verified=True,
+        note="Web-verified 2026-09-05; replaces the recalled 7,511 km^2, which "
+             "matched no published source. The 7,691 km^2 figure is consistent "
+             "with Koteshwar (22 km downstream) secondary sources. Context only; "
+             "the model consumes no inflow hydrograph"),
     "tehri.dam.installed_mw": Source(
         f"1,000 MW (4 x 250 MW) for Tehri HPP Stage-I — {THDC_FAQ}",
         verified=True,
@@ -850,13 +860,15 @@ SOURCES: dict[str, Source] = {
         f"mobility H/L = 0.16 at Tapovan — {SHUGAR_2021}",
         verified=True),
     "rishi_ganga.downstream": Source(
-        "Rishiganga 13.2 MW and Tapovan-Vishnugad 520 MW capacities recalled; "
-        "both were destroyed on 2021-02-07 per Shugar et al. (2021)",
-        verified=False,
-        note="Destruction and relative positions are verified from the paper; "
-             "the MW ratings and the POI decimal coordinates are not. Nothing "
-             "in the model consumes the MW figure — it appears only in the "
-             "exposure narrative, so it must not reach a slide unverified"),
+        "Rishiganga HEP 13.2 MW (Rishiganga Power Corp., near Raini) and "
+        "Tapovan-Vishnugad 520 MW (NTPC, 4 x 130 MW Pelton, Dhauliganga); "
+        "both destroyed/damaged 2021-02-07 per Shugar et al. (2021)",
+        verified=True,
+        note="MW ratings web-verified 2026-09-05 against Wikipedia "
+             "(Tapovan Vishnugad Hydropower Plant), ICIMOD's Chamoli analysis "
+             "and PIB release PRID 1696057. POI decimal coordinates remain "
+             "approximate (read off maps); nothing in the model consumes the "
+             "MW figure"),
 }
 
 

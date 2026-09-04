@@ -6,8 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { PresentableBadge } from "@/components/ui/PresentableBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { getRuns, USING_MOCKS } from "@/lib/api";
-import { DemoDataBanner } from "@/components/ui/DemoDataBanner";
+import { getRuns } from "@/lib/api";
 import { RunListItem } from "@/lib/types";
 import { formatArrival, formatArea } from "@/lib/utils";
 
@@ -52,7 +51,6 @@ export default function RunsHistoryPage() {
 
       {/* Main Content */}
       <main className="page-container section" style={{ flexGrow: 1, overflowY: "auto" }}>
-        {USING_MOCKS && <DemoDataBanner />}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "var(--space-xl)" }}>
           <div>
             <span className="stat-label">AUDIT TRAIL & LOGS</span>

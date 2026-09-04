@@ -231,6 +231,53 @@ def create_app() -> FastAPI:
             raise HTTPException(404, f"no run '{run_id}'")
         return jobs.tail_log(run_id, n=max(1, min(tail, 5000)))
 
+    @app.get("/api/runs/{run_id}/manifest")
+    def get_manifest(run_id: str) -> dict[str, Any]:
+        """The bundle's MANIFEST.json — every artifact with sha256 and size."""
+        if jobs.get_status(run_id) is None:
+            raise HTTPException(404, f"no run '{run_id}'")
+        path = jobs.run_dir(run_id) / "MANIFEST.json"
+        if not path.is_file():
+            raise HTTPException(404, f"no MANIFEST.json for '{run_id}'")
+        import json
+
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @app.get("/api/runs/{run_id}/isochrones.geojson")
+    def get_isochrones(run_id: str) -> dict[str, Any]:
+        """Arrival-band isochrones, derived on the fly from arrival_band.tif."""
+        if jobs.get_status(run_id) is None:
+            raise HTTPException(404, f"no run '{run_id}'")
+        from ..export.geojson import isochrones_fc
+
+        try:
+            return isochrones_fc(jobs.run_dir(run_id))
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc))
+
+    @app.get("/api/runs/{run_id}/settlements.geojson")
+    def get_settlements(run_id: str) -> dict[str, Any]:
+        """Named downstream settlements, sampled from the run's own rasters."""
+        if jobs.get_status(run_id) is None:
+            raise HTTPException(404, f"no run '{run_id}'")
+        from ..export.geojson import settlements_fc
+
+        try:
+            meta = jobs.read_metadata(run_id)
+        except Exception:
+            meta = None
+        if meta is None:
+            raise HTTPException(
+                409, f"no result for '{run_id}' yet; poll GET /api/runs/{run_id}")
+        area = STUDY_AREAS.get(
+            meta.get("scenario", {}).get("study_area", ""))
+        if area is None:
+            raise HTTPException(404, "run's study area is not configured")
+        try:
+            return settlements_fc(jobs.run_dir(run_id), area)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, str(exc))
+
     @app.delete("/api/runs/{run_id}")
     def delete_run(run_id: str) -> dict[str, Any]:
         if jobs.get_status(run_id) is None:

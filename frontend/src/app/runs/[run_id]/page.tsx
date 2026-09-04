@@ -1,6 +1,5 @@
 import React from "react";
-import { getRun, getManifest, getIsochrones, getSettlements, USING_MOCKS } from "@/lib/api";
-import { DemoDataBanner } from "@/components/ui/DemoDataBanner";
+import { getRun, getManifest, getIsochrones, getSettlements } from "@/lib/api";
 import { ConsoleWorkspace } from "@/components/console/ConsoleWorkspace";
 
 export default async function SimulationConsolePage({
@@ -20,11 +19,6 @@ export default async function SimulationConsolePage({
 
   return (
     <>
-      {USING_MOCKS && (
-        <div className="page-container" style={{ paddingTop: "var(--space-sm)" }}>
-          <DemoDataBanner />
-        </div>
-      )}
       <ConsoleWorkspace
         initialSummary={summary}
         initialManifest={manifest}
