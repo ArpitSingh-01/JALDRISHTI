@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/Button";
+import { Emblem } from "@/components/brand/Emblem";
 import { cn } from "@/lib/utils";
 
 export const Navbar: React.FC = () => {
@@ -18,15 +19,45 @@ export const Navbar: React.FC = () => {
   ];
 
   return (
-    <header className="landing-nav-header">
-      <div className="page-container nav-container">
-        <Link href="/" className="nav-brand" aria-label="JALDRISHTI Home">
-          <div className="brand-lockup">
-            <span className="brand-deva" lang="hi">जलदृष्टि</span>
-            <span className="brand-latin">JALDRISHTI</span>
-          </div>
-          <span className="brand-badge">SIH 26161</span>
-        </Link>
+    <>
+      {/*
+        Government-portal masthead strip. Names the programme and the
+        organisation the problem statement belongs to. It deliberately does
+        NOT claim to BE a Government of India website — that would be
+        improper under the State Emblem of India (Prohibition of Improper
+        Use) Act, 2005, and dishonest. The visual language is portal-
+        formal; the words are true.
+      */}
+      <div className="gov-strip">
+        <div className="page-container gov-strip-inner">
+          <span className="gov-strip-left">
+            <span className="gov-strip-deva" lang="hi">जलदृष्टि</span>
+            <span className="gov-strip-sep" aria-hidden="true">·</span>
+            <span>Smart India Hackathon 2026</span>
+            <span className="gov-strip-sep" aria-hidden="true">·</span>
+            <span>Problem Statement 26161</span>
+          </span>
+          <span className="gov-strip-right">
+            Organisation: National Technical Research Organisation
+            <span className="gov-strip-sep" aria-hidden="true">·</span>
+            Theme: Disaster Management
+          </span>
+        </div>
+      </div>
+
+      <header className="landing-nav-header">
+        <a href="#main-content" className="skip-link">
+          Skip to main content
+        </a>
+        <div className="page-container nav-container">
+          <Link href="/" className="nav-brand" aria-label="JALDRISHTI Home">
+            <Emblem size={42} label="" className="brand-emblem" />
+            <div className="brand-lockup">
+              <span className="brand-deva" lang="hi">जलदृष्टि</span>
+              <span className="brand-latin">JALDRISHTI</span>
+            </div>
+            <span className="brand-badge">SIH 26161</span>
+          </Link>
 
         <nav className="nav-links hide-mobile" aria-label="Main Navigation">
           {navLinks.map((link) => {
@@ -84,5 +115,6 @@ export const Navbar: React.FC = () => {
         </div>
       )}
     </header>
+    </>
   );
 };

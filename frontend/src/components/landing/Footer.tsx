@@ -1,5 +1,6 @@
 import React from "react";
 import Link from "next/link";
+import { Emblem } from "@/components/brand/Emblem";
 import { STATUTORY_CITATIONS, MODEL_DISCLAIMER } from "@/lib/constants";
 
 export const Footer: React.FC = () => {
@@ -8,9 +9,12 @@ export const Footer: React.FC = () => {
       <div className="page-container footer-container">
         <div className="footer-top-grid">
           <div className="footer-brand-col">
-            <div className="brand-lockup">
-              <span className="brand-deva" lang="hi">जलदृष्टि</span>
-              <span className="brand-latin">JALDRISHTI</span>
+            <div className="brand-lockup footer-lockup">
+              <Emblem size={48} label="JALDRISHTI emblem" className="brand-emblem" />
+              <div className="brand-lockup">
+                <span className="brand-deva" lang="hi">जलदृष्टि</span>
+                <span className="brand-latin">JALDRISHTI</span>
+              </div>
             </div>
             <p className="footer-tagline prose-narrow">
               Dam-break & river-blockage hydrodynamic flood simulation for humanitarian

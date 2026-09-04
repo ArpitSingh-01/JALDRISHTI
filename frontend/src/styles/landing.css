@@ -12,6 +12,81 @@
 }
 
 /* ==========================================================================
+   GOVERNMENT-PORTAL MASTHEAD STRIP
+   The dual-language utility band that sits above the nav on official
+   portals. Navy-deep field, paper text, hairline saffron base rule — the
+   tricolour reference carried structurally, not decoratively.
+   ========================================================================== */
+.gov-strip {
+  background-color: var(--color-navy-deep);
+  color: var(--color-paper);
+  border-bottom: 2px solid var(--color-saffron);
+}
+
+.gov-strip-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-height: 2rem;
+  padding-block: var(--space-3xs, 2px);
+}
+
+.gov-strip-left,
+.gov-strip-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.gov-strip-deva {
+  font-family: var(--font-deva);
+  font-size: var(--text-xs);
+  color: var(--color-saffron);
+}
+
+.gov-strip-sep {
+  opacity: 0.45;
+}
+
+/* On narrow screens keep the strip single-line readable: left side only,
+   right side collapses under it. No two-line clickable text, no overflow. */
+@media (max-width: 768px) {
+  .gov-strip-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    padding-block: var(--space-3xs, 2px);
+  }
+  .gov-strip-right {
+    white-space: normal;
+    line-height: 1.4;
+  }
+}
+
+/* ==========================================================================
+   SKIP LINK (a11y) — visible only on focus, per gov-portal convention
+   ========================================================================== */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background-color: var(--color-navy);
+  color: var(--color-paper);
+  font-size: var(--text-sm);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.skip-link:focus-visible {
+  left: 0;
+}
+
+/* ==========================================================================
    NAVIGATION
    ========================================================================== */
 .landing-nav-header {
@@ -35,6 +110,14 @@
   align-items: center;
   gap: var(--space-sm);
   text-decoration: none;
+}
+
+.brand-emblem {
+  flex-shrink: 0;
+}
+
+.footer-lockup {
+  gap: var(--space-sm);
 }
 
 .brand-lockup {

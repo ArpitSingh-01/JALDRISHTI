@@ -3,6 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { PresentableBadge } from "@/components/ui/PresentableBadge";
+import { Emblem } from "@/components/brand/Emblem";
 import { ScenarioSummary } from "@/lib/types";
 
 export interface ConsoleHeaderProps {
@@ -20,6 +21,7 @@ export const ConsoleHeader: React.FC<ConsoleHeaderProps> = ({
     <header className="console-header">
       <div className="console-header-left">
         <Link href="/" className="brand-lockup console-brand" aria-label="JALDRISHTI Home">
+          <Emblem size={26} label="" className="brand-emblem" />
           <span className="brand-deva" lang="hi">जलदृष्टि</span>
           <span className="brand-latin" style={{ fontSize: "var(--text-sm)" }}>JALDRISHTI</span>
         </Link>
