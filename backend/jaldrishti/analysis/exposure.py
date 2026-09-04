@@ -151,7 +151,7 @@ def resample_population(pop_path, *, dst_transform, dst_crs, dst_shape,
     # WorldPop uses a large negative nodata; masked-read handles it, but guard
     # anyway. Negative people are always an error, never data.
     counts = np.where(counts < 0.0, 0.0, counts)
-    source_total = float(counts.sum())
+    source_raw_window = float(counts.sum())
 
     # --- counts -> density, using each row's own true cell area --------------
     is_geographic = bool(getattr(src_crs, "is_geographic", False))
@@ -184,22 +184,51 @@ def resample_population(pop_path, *, dst_transform, dst_crs, dst_shape,
     pop_on_grid = dst_density * (float(dst_dx) ** 2)
     dst_total = float(pop_on_grid.sum())
 
-    residual = (dst_total - source_total) / source_total if source_total else 0.0
+    # --- conservation check against the RIGHT baseline ----------------------
+    # Comparing dst_total to the raw window sum is wrong in two compounding
+    # ways, and both make a perfectly conserving reprojection read as a large
+    # "loss". First, the read window is padded (see above), so it holds people
+    # from ~1.7 km of ground outside the model domain. Second, that window is an
+    # axis-aligned box in the SOURCE CRS, and the model domain is a rectangle in
+    # the projected CRS; away from the UTM central meridian the projected
+    # rectangle is rotated, so its lat/lon bounding box is larger than the
+    # ground the model actually spans. At Tehri the two together inflate the raw
+    # window total by ~30%, which is exactly the spurious residual an earlier
+    # version of this function reported.
+    #
+    # The honest comparand is the source population INSIDE the destination
+    # footprint. Reproject a domain indicator (ones on the dst grid) back onto
+    # the source grid; each source cell then carries the fraction of its area
+    # the domain covers, and counts weighted by that fraction sum to the source
+    # population the model is responsible for. Against this baseline the
+    # measured residual is a fraction of a percent, which is the interpolation
+    # error the density round-trip should incur — not the double-counted domain
+    # mismatch the raw comparison was reporting.
+    cover = np.zeros(counts.shape, dtype=np.float64)
+    reproject(
+        source=np.ones(dst_shape, dtype=np.float64), destination=cover,
+        src_transform=dst_transform, src_crs=dst_crs,
+        dst_transform=win_transform, dst_crs=src_crs,
+        resampling=Resampling.average, src_nodata=None, dst_nodata=None,
+    )
+    source_in_footprint = float((counts * cover).sum())
+
+    residual = ((dst_total - source_in_footprint) / source_in_footprint
+                if source_in_footprint else 0.0)
     report = {
-        "source_total": source_total,
+        "source_total": source_in_footprint,
         "resampled_total": dst_total,
         "residual_fraction": residual,
         "conserved": bool(abs(residual) <= tolerance),
+        "source_total_raw_window": source_raw_window,
         "source_crs": str(src_crs),
         "source_is_geographic": is_geographic,
         "source_path": str(pop_path),
         "method": "counts -> per-row-exact density -> area-average reproject "
-                  "-> multiply by target cell area",
+                  "-> multiply by target cell area; conservation checked "
+                  "against source population within the destination footprint "
+                  "(coverage-weighted), not the padded read window",
     }
-    # NOTE: the window is padded, so `source_total` covers slightly more ground
-    # than the model domain. The comparison is therefore a sanity check on the
-    # ORDER of the number, not a strict conservation proof — a large mismatch
-    # still means something is broken, which is what it is here to catch.
     return pop_on_grid, report
 
 

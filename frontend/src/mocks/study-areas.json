@@ -1,0 +1,20 @@
+[
+  {
+    "key": "malpasset",
+    "title": "Malpasset Dam, Reyran valley, France — 2 December 1959",
+    "scenario_kind": "dam_break",
+    "purpose": "Validation against surveyed field data. This is the rung of the ladder that turns 'our solver passes analytical tests' into 'our solver reproduces a real flood that really happened'."
+  },
+  {
+    "key": "tehri",
+    "title": "Tehri Dam, Bhagirathi river, Uttarakhand",
+    "scenario_kind": "dam_break",
+    "purpose": "Headline demonstration on a real Indian dam. India's tallest, on a Himalayan river, upstream of dense settlement and of the Ganga confluence."
+  },
+  {
+    "key": "rishi_ganga",
+    "title": "Rishi Ganga / Ronti Gad, Chamoli, Uttarakhand — 7 February 2021",
+    "scenario_kind": "blockage",
+    "purpose": "Satisfies the problem statement's river-blockage requirement, on the event the problem statement itself cites."
+  }
+]

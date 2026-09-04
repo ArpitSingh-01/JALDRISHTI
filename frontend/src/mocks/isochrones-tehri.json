@@ -1,0 +1,89 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "band": 0,
+        "label": "0-15 min",
+        "min_minutes": 0,
+        "max_minutes": 15,
+        "area_km2": 34.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[78.48, 30.38], [78.52, 30.38], [78.52, 30.35], [78.48, 30.35], [78.48, 30.38]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "band": 1,
+        "label": "15-30 min",
+        "min_minutes": 15,
+        "max_minutes": 30,
+        "area_km2": 47.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[78.46, 30.35], [78.54, 30.35], [78.54, 30.30], [78.46, 30.30], [78.46, 30.35]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "band": 2,
+        "label": "30-60 min",
+        "min_minutes": 30,
+        "max_minutes": 60,
+        "area_km2": 58.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[78.44, 30.30], [78.56, 30.30], [78.56, 30.22], [78.44, 30.22], [78.44, 30.30]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "band": 3,
+        "label": "60-120 min",
+        "min_minutes": 60,
+        "max_minutes": 120,
+        "area_km2": 51.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[78.40, 30.22], [78.60, 30.22], [78.60, 30.12], [78.40, 30.12], [78.40, 30.22]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "band": 4,
+        "label": ">120 min",
+        "min_minutes": 120,
+        "max_minutes": 999,
+        "area_km2": 20.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[78.30, 30.12], [78.70, 30.12], [78.70, 30.00], [78.30, 30.00], [78.30, 30.12]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "band": -2,
+        "label": "Pre-existing water",
+        "min_minutes": -1,
+        "max_minutes": -1,
+        "area_km2": 52.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[78.47, 30.40], [78.50, 30.40], [78.50, 30.38], [78.47, 30.38], [78.47, 30.40]]]
+      }
+    }
+  ]
+}

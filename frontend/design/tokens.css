@@ -1,0 +1,369 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
+ * ---------------------------------------------------------------------------
+ * JALDRISHTI — design tokens.  Theme: "Tricolour Instrument" (custom, tuned).
+ *
+ * theme axes  · paper band: light (99%)  · display style: grotesk-sans
+ *             · accent hue: warm (62 deg, saffron)
+ * registers   · landing (chromatic, flag palette)  ·  console (achromatic + one accent)
+ * source of truth for: colour, type, space, motion, radius, elevation
+ * NOT the source of truth for: hazard / arrival / depth colour ramps — those are
+ *   generated from Python (see § RAMPS below).  Never hand-edit them here.
+ * ---------------------------------------------------------------------------
+ * Every colour in the app must reference a token from this file. Inline hex,
+ * rgb() or oklch() anywhere in a component is a defect — see frontend.md § 2.3.
+ */
+
+/* ===========================================================================
+   1 · PALETTE — the Indian tricolour, tuned for screen
+   ===========================================================================
+   The flag's published colours are India Saffron #FF9933, white, India Green
+   #138808 and Navy Blue #000080 (the Ashoka Chakra). Used raw they are wrong for
+   a working instrument: #000080 at oklch(27% 0.19 264) is more chromatic than any
+   text colour should be, and #FF9933 at 78.5% lightness cannot carry white text
+   at any size. So each is tuned on the L and C axes and left alone on H — the hue
+   is the part that carries the national reference, and it is preserved exactly.
+   -------------------------------------------------------------------------- */
+:root {
+  /* -- saffron: the ACTION colour. Never decoration, never a text colour. ---- */
+  --color-saffron:        oklch(78.5% 0.155 62);   /* ~#FF9933, the flag value  */
+  --color-saffron-deep:   oklch(68.0% 0.160 55);   /* hover / active / borders  */
+  --color-saffron-wash:   oklch(96.0% 0.035 65);   /* selected-row tint         */
+
+  /* -- green: STATE only — "verified", "on trace", "mass conserved". --------
+     Free of collision by construction: the DEFRA ramp is yellow-to-red and the
+     arrival ramp is blues, so nothing green ever appears inside the map canvas.
+     That is why "verified" gets to be green and nothing else does. */
+  --color-green:          oklch(51.0% 0.160 142);  /* ~#138808                  */
+  --color-green-deep:     oklch(42.0% 0.140 143);
+  --color-green-wash:     oklch(95.5% 0.030 145);
+
+  /* -- navy: INK and chrome. Carries the flag reference in every register. --- */
+  --color-navy:           oklch(32.0% 0.130 258);
+  --color-navy-deep:      oklch(22.0% 0.080 258);
+  --color-navy-wash:      oklch(96.0% 0.012 258);
+
+  /* -- paper: warm white, deliberately not #ffffff. -------------------------
+     A pure-white page makes the map's white legend panels disappear into it.
+     A hair of warmth (C 0.004 at H 85) keeps panel edges readable without
+     reading as cream. */
+  --color-paper:          oklch(99.0% 0.004 85);
+  --color-paper-2:        oklch(97.0% 0.006 85);
+  --color-paper-3:        oklch(94.0% 0.008 258);
+
+  /* -- ink ------------------------------------------------------------------ */
+  --color-ink:            oklch(22.0% 0.020 258);  /* body + headings          */
+  --color-ink-2:          oklch(42.0% 0.020 258);  /* secondary               */
+  --color-ink-3:          oklch(58.0% 0.015 258);  /* captions, axis labels   */
+
+  /* -- rules ---------------------------------------------------------------- */
+  --color-rule:           oklch(88.0% 0.010 258);
+  --color-rule-strong:    oklch(78.0% 0.015 258);
+  --rule-hairline:        1px;
+  --rule-heavy:           2px;
+
+  /* -- semantic ------------------------------------------------------------- */
+  --color-accent:         var(--color-saffron);
+  --color-accent-deep:    var(--color-saffron-deep);
+  --color-accent-ink:     var(--color-navy-deep);  /* label ON saffron. ~6:1.  */
+  --color-verified:       var(--color-green);
+  --color-focus:          var(--color-navy);
+
+  /* Form/system error. HARD RULE: never inside the map canvas and never in a
+     legend — it sits between DEFRA "Significant" #f03b20 and "Extreme" #7f0000
+     and would be read as a hazard band. Outside the canvas it is unambiguous. */
+  --color-error:          oklch(48.0% 0.190 22);
+  --color-error-wash:     oklch(96.0% 0.030 22);
+
+  /* The honesty system is ACHROMATIC on purpose. "Unverified" must be legible
+     on a page that already spends its colour budget on hazard ramps, so it is
+     carried by a hatch fill + navy + a spelled-out word, not by a hue. This is
+     the single most important colour decision in the file: see frontend.md § 11. */
+  --color-hatch-line:     oklch(78.0% 0.015 258);
+  --color-hatch-field:    oklch(97.5% 0.006 258);
+  --pattern-unverified:
+    repeating-linear-gradient(135deg,
+      var(--color-hatch-field) 0 6px,
+      var(--color-hatch-line)  6px 7px);
+
+  /* -- surfaces / elevation -------------------------------------------------
+     Two levels only. A control surface that floats on four different shadow
+     depths reads as decoration; an instrument reads as flat panels with rules. */
+  --shadow-1: 0 1px 2px oklch(22% 0.02 258 / 0.06),
+              0 1px 1px oklch(22% 0.02 258 / 0.04);
+  --shadow-2: 0 8px 24px oklch(22% 0.02 258 / 0.10),
+              0 2px 6px  oklch(22% 0.02 258 / 0.06);
+
+  /* ==========================================================================
+     2 · TYPE
+     ==========================================================================
+     2 Latin voices + 1 numeric + 1 script extension.
+
+       Bricolage Grotesque  display. Variable, wide weight range, enough
+                            character to not read as a default. Roman only —
+                            italic headings are banned (frontend.md § 2.7).
+       Public Sans          body + UI. From the US Web Design System: built for
+                            small-size legibility in government forms, which is
+                            exactly this product's register. Chosen partly
+                            because it is NOT Inter — Inter is the default every
+                            generated UI reaches for.
+       IBM Plex Mono        every number that means something. Tabular figures
+                            are mandatory: an arrival-time column that shifts
+                            width between 9 and 47 minutes is unreadable at a
+                            glance, and glancing is the entire use case.
+       IBM Plex Sans Devanagari
+                            Devanagari script extension, not a fourth voice.
+                            Present because "जलदृष्टि" is the product's name and
+                            because a district officer may need Hindi place
+                            labels beside the transliteration.
+     ---------------------------------------------------------------------- */
+  --font-display: "Bricolage Grotesque", "Public Sans", system-ui, sans-serif;
+  --font-body:    "Public Sans", system-ui, -apple-system, sans-serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+  --font-deva:    "IBM Plex Sans Devanagari", "Noto Sans Devanagari", sans-serif;
+
+  /* Fluid where it earns it, fixed where precision matters more than scale. */
+  --text-2xs:      0.6875rem;   /* 11px — legend ticks, axis labels only      */
+  --text-xs:       0.75rem;     /* 12px — table meta, captions                */
+  --text-sm:       0.875rem;    /* 14px — UI default in the console           */
+  --text-base:     1rem;        /* 16px — body copy default                   */
+  --text-lg:       1.125rem;
+  --text-xl:       1.375rem;
+  --text-2xl:      1.75rem;
+  --text-3xl:      2.25rem;
+  --text-4xl:      3rem;
+  --text-display-s: clamp(2.25rem, 4.5vw, 3.75rem);
+  --text-display:   clamp(2.75rem, 7.5vw, 5.75rem);
+
+  --leading-tight:  1.05;   /* display                                        */
+  --leading-snug:   1.25;   /* headings                                       */
+  --leading-normal: 1.55;   /* body                                           */
+  --leading-loose:  1.7;    /* long-form limitation prose                     */
+
+  --tracking-display: -0.022em;
+  --tracking-tight:   -0.012em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.06em;   /* the ONE uppercase use: status pills        */
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semi:    600;
+  --weight-bold:    700;
+  --weight-black:   800;
+
+  --measure-prose:  62ch;   /* limitation text must not run wider than this   */
+  --measure-narrow: 44ch;
+
+  /* ==========================================================================
+     3 · SPACE — 4pt scale
+     ========================================================================== */
+  --space-3xs: 0.125rem;   /*  2px */
+  --space-2xs: 0.25rem;    /*  4px */
+  --space-xs:  0.5rem;     /*  8px */
+  --space-sm:  0.75rem;    /* 12px */
+  --space-md:  1rem;       /* 16px */
+  --space-lg:  1.5rem;     /* 24px */
+  --space-xl:  2rem;       /* 32px */
+  --space-2xl: 3rem;       /* 48px */
+  --space-3xl: 4rem;       /* 64px */
+  --space-4xl: 6rem;       /* 96px */
+  --space-5xl: 8rem;       /* 128px */
+
+  --gutter:      var(--space-lg);
+  --page-max:    78rem;
+  --prose-max:   var(--measure-prose);
+  --panel-w:     22rem;    /* console side panels                            */
+  --header-h:    3.5rem;
+
+  /* ==========================================================================
+     4 · RADIUS — small on purpose. This is an instrument, not a soft SaaS app.
+     ========================================================================== */
+  --radius-sm:   2px;
+  --radius-md:   4px;
+  --radius-lg:   8px;
+  --radius-pill: 999px;
+
+  /* ==========================================================================
+     5 · MOTION
+     ==========================================================================
+     Three named easings, no browser `ease`, no overshoot on UI state. Bounce on
+     a control that reports flood arrival times is a category error. */
+  --ease-out:    cubic-bezier(0.16, 1, 0.30, 1);
+  --ease-in:     cubic-bezier(0.70, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --dur-1: 120ms;   /* state change on a control                              */
+  --dur-2: 200ms;   /* panel / disclosure                                     */
+  --dur-3: 320ms;   /* route-level transition                                 */
+  --dur-4: 600ms;   /* counter roll-up                                        */
+
+  /* ==========================================================================
+     6 · MAP CANVAS
+     ==========================================================================
+     Basemap lightness is load-bearing, not taste. The arrival ramp's lightest
+     step (#bdd7e7, the ">120 min" band) was chosen in Python specifically so it
+     would stay visible against neutral grey unflooded land. Push the basemap
+     toward white and the least-urgent band vanishes; push it toward black (as a
+     naive dark mode does) and it becomes the brightest thing on the map, which
+     inverts the ramp's urgency reading. Both failures are silent. */
+  --map-land:        oklch(90.0% 0.004 258);
+  --map-land-shade:  oklch(83.0% 0.006 258);   /* hillshade multiply target    */
+  --map-outside:     oklch(95.0% 0.003 258);   /* outside the modelled domain  */
+  --map-graticule:   oklch(80.0% 0.008 258);
+  --map-label:       var(--color-ink);
+  --map-label-halo:  oklch(99% 0.004 85 / 0.85);
+}
+
+/* ===========================================================================
+   7 · DARK REGISTER — the console at night, in a control room
+   ===========================================================================
+   Applies to /runs/* only. The landing page has no dark variant: it is a
+   public, printable, projector-facing document and one register is correct.
+
+   The ramps DO NOT change between registers. They are perceptual scales tied to
+   physical quantities; a hazard colour that means something different after
+   dark is worse than no dark mode at all.
+   -------------------------------------------------------------------------- */
+[data-register="console"][data-theme="dark"] {
+  --color-paper:        oklch(20.0% 0.015 258);
+  --color-paper-2:      oklch(25.0% 0.018 258);
+  --color-paper-3:      oklch(30.0% 0.020 258);
+  --color-ink:          oklch(96.0% 0.005 258);
+  --color-ink-2:        oklch(80.0% 0.010 258);
+  --color-ink-3:        oklch(64.0% 0.012 258);
+  --color-rule:         oklch(34.0% 0.018 258);
+  --color-rule-strong:  oklch(46.0% 0.020 258);
+  --color-navy-wash:    oklch(27.0% 0.030 258);
+  --color-saffron-wash: oklch(30.0% 0.045 62);
+  --color-green-wash:   oklch(28.0% 0.040 145);
+  --color-error-wash:   oklch(28.0% 0.040 22);
+  --color-focus:        oklch(85.0% 0.090 62);   /* navy is invisible here     */
+  --color-hatch-line:   oklch(46.0% 0.020 258);
+  --color-hatch-field:  oklch(24.0% 0.016 258);
+
+  /* Mid-grey, NOT near-black. See § 6. */
+  --map-land:           oklch(46.0% 0.008 258);
+  --map-land-shade:     oklch(38.0% 0.010 258);
+  --map-outside:        oklch(28.0% 0.006 258);
+  --map-graticule:      oklch(54.0% 0.010 258);
+  --map-label-halo:     oklch(20% 0.015 258 / 0.85);
+
+  --shadow-1: 0 1px 2px oklch(0% 0 0 / 0.35);
+  --shadow-2: 0 8px 24px oklch(0% 0 0 / 0.45);
+}
+
+/* ===========================================================================
+   8 · RAMPS — generated, not authored
+   ===========================================================================
+   These are the ONLY hex values in the design system, and they are here as a
+   readable mirror of the real source. The real source is Python:
+
+     backend/jaldrishti/analysis/hazard.py   DEFRA_CLASS_COLOURS, AIDR_CLASS_COLOURS
+     backend/jaldrishti/analysis/arrival.py  BAND_COLOURS, PRE_EXISTING_WATER_COLOUR
+
+   The same constants drive the QGIS .qml styles that ship inside every export
+   bundle. If the web legend and the .qml disagree, a district GIS officer opens
+   the Shapefile we gave them and sees different colours from the screenshot in
+   the PDF we gave them — and every number on both becomes suspect.
+
+   So they are CODE-GENERATED into `frontend/src/lib/ramps.generated.ts` by
+   `backend/scripts/export_ramps.py`, and a CI check fails if the generated file
+   is stale. Import from that module. Do not retype these values, do not
+   interpolate "nicer" intermediate stops, do not reverse them.
+   -------------------------------------------------------------------------- */
+:root {
+  /* DEFRA/EA hazard rating band — Low · Moderate · Significant · Extreme */
+  --ramp-defra-0: #ffeda0;
+  --ramp-defra-1: #feb24c;
+  --ramp-defra-2: #f03b20;
+  --ramp-defra-3: #7f0000;
+
+  /* AIDR combined hazard class H1..H6 */
+  --ramp-aidr-0: #ffffb2;
+  --ramp-aidr-1: #fed976;
+  --ramp-aidr-2: #feb24c;
+  --ramp-aidr-3: #fd8d3c;
+  --ramp-aidr-4: #e31a1c;
+  --ramp-aidr-5: #800026;
+
+  /* Arrival isochrone bands 0..4 — fastest DARKEST, so the eye lands first on
+     the places with least time. Index 4 (">120 min") is #bdd7e7 and not a
+     near-white, deliberately: see § 6. */
+  --ramp-arrival-0: #08306b;
+  --ramp-arrival-1: #2171b5;
+  --ramp-arrival-2: #4292c6;
+  --ramp-arrival-3: #7fb8d9;
+  --ramp-arrival-4: #bdd7e7;
+
+  /* band == -2 · water that existed before the failure (reservoir, channel).
+     Off the urgency ramp entirely so it can never be misread as "a band I
+     can't quite place on the legend". */
+  --ramp-pre-existing-water: #8c96a8;
+
+  /* band == -1 · never flooded. Renders as nothing at all. */
+  --ramp-never-flooded: transparent;
+}
+
+/* ===========================================================================
+   9 · BASE — the minimum global floor. Everything else is component-scoped.
+   =========================================================================== */
+html, body {
+  /* clip, never hidden: `hidden` on the root kills position:sticky in Safari
+     and silently breaks the console's sticky legend. */
+  overflow-x: clip;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  letter-spacing: var(--tracking-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-style: normal;              /* italic headings are banned. See § 2.7.   */
+  line-height: var(--leading-snug);
+  letter-spacing: var(--tracking-tight);
+  /* A display headline containing "Bhagirathi" or an unbroken run ID must wrap
+     inside the word rather than push a 320px viewport into horizontal scroll. */
+  overflow-wrap: anywhere;
+  min-width: 0;
+  text-wrap: balance;
+}
+
+/* Every number that means something. `tnum` + `zero` so a column of arrival
+   times stays column-aligned and 0 never reads as O. */
+.num, td.num, .metric, time, output {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1, "zero" 1;
+}
+
+:focus-visible {
+  outline: var(--rule-heavy) solid var(--color-focus);
+  outline-offset: 2px;
+  /* Never transitioned. A focus ring that fades in is a focus ring a keyboard
+     user has already moved past. */
+  transition: none;
+}
+
+::selection {
+  background: var(--color-saffron-wash);
+  color: var(--color-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 120ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Spatial motion collapses to an opacity crossfade — it does not merely get
+     faster. The timeline scrubber keeps working; it just stops interpolating. */
+  [data-motion="spatial"] { transition-property: opacity !important; }
+}

@@ -1,0 +1,55 @@
+{
+  "run_id": "mock-nothing-flooded-0001",
+  "study_area": "tehri",
+  "scenario": "minimal breach test",
+  "headline": "minimal breach test at tehri floods 0 km².",
+  "grid": {
+    "shape": [702, 649],
+    "dx_m": 90.0,
+    "crs": "EPSG:32644",
+    "transform": [90.0, 0.0, 600000.0, 0.0, -90.0, 3400000.0]
+  },
+  "run": {
+    "duration_s": 3600.0,
+    "wall_time_s": 18.0,
+    "steps": 8200,
+    "volume_error": 1.1e-11,
+    "solver": { "cfl": 0.4, "riemann": "HLLC" }
+  },
+  "results": {
+    "flooded_area_km2": 0.0,
+    "total_wetted_area_km2": 52.0,
+    "peak_depth_m": 0.0,
+    "peak_speed_ms": 0.0,
+    "first_arrival_min": null,
+    "last_arrival_min": null,
+    "area_by_hazard_km2": {},
+    "area_by_aidr_class_km2": {},
+    "area_by_arrival_band_km2": {},
+    "interpolated_flooded_cells": 0
+  },
+  "provenance": {
+    "terrain": {
+      "dem": "MERIT/SRTM (mock)",
+      "conditioning": ["pit-fill", "burn-streams"]
+    },
+    "breach": {
+      "mode": "instantaneous",
+      "width_m": 10,
+      "depth_m": 5,
+      "formation_s": 0
+    }
+  },
+  "honesty": {
+    "presentable_as_fact": false,
+    "blocking_reasons": [
+      "11 input citation(s) are not verified against a primary source"
+    ],
+    "unverified_inputs": [
+      "Tehri reservoir gross storage 3.54e9 m³ (source not yet verified)"
+    ],
+    "limitations": [
+      "Arrival time is measured from failure and is NOT warning time."
+    ]
+  }
+}

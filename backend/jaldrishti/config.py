@@ -122,10 +122,22 @@ class DamSpec:
     VERTICAL DATUM. `frl_m`, `mddl_m` and `mwl_m` are elevations, and elevations
     are meaningless without a datum. Indian dam levels are quoted above mean sea
     level; Copernicus DEM heights are relative to the EGM2008 geoid, which
-    approximates MSL to well within our error budget. That the two agree is not
-    an assumption we are making — it is checked: the DEM reads 830.3 m at the
-    Tehri dam axis against a published FRL of 830.0 m. If a future study area
-    disagrees at that level, suspect the datum before suspecting the DEM.
+    approximates MSL to well within our error budget.
+
+    That agreement is NOT confirmed by reading the DEM at the dam coordinate, and
+    an earlier version of this docstring wrongly claimed it was ("the DEM reads
+    830.3 m at the Tehri dam axis against a published FRL of 830.0 m"). It does
+    not: `scripts/check_terrain.py` reads 819.4 m at 90 m and 816.6 m at 30 m
+    there. The NRLD coordinate lands on the reservoir side of the structure, not
+    on the crest, so it never could have matched FRL.
+
+    What DOES corroborate the datum is the crest ridge one to two cells south of
+    that coordinate, which reads 832.1 m at 90 m and 834.7 m at 30 m. A dam held
+    at FRL 830.0 m must have a crest above 830.0 m by its freeboard, and that is
+    what the DEM shows. Treat the crest, not the coordinate, as the check.
+
+    Do not put "matches FRL to 0.3 m" on a slide. If a future study area
+    disagrees at the CREST, suspect the datum before suspecting the DEM.
     """
     name: str
     river: str
@@ -423,11 +435,33 @@ TEHRI = StudyArea(
         name="Tehri",
         river="Bhagirathi",
         # 30 deg 22' 43" N, 78 deg 28' 48" E, read off the NRLD 2019 Uttarakhand
-        # table (PIC UA34VH0012). Independently corroborated by the DEM: the bed
-        # here is 830.3 m at 90 m and 827.4 m at 30 m against a published FRL of
-        # 830.0 m, and the 5x5 window resolves reservoir surface to the north,
-        # crest ridge at the point, and a drop to the tailrace south. A wrong
-        # coordinate could not produce that pattern.
+        # table (PIC UA34VH0012).
+        #
+        # DEM CROSS-CHECK (scripts/check_terrain.py, values as measured):
+        # the bed AT this coordinate is 819.4 m at 90 m and 816.6 m at 30 m --
+        # about 11-13 m BELOW the published FRL of 830.0 m. That is expected, not
+        # a discrepancy: the coordinate sits on the reservoir side of the
+        # structure, so it reads the upstream face, never the crest.
+        #
+        # The 5x5 window is what validates the coordinate, and it does so
+        # strongly. North of the point the DEM is flat at exactly 814.0 m -- a
+        # water surface, which is how Copernicus renders reservoirs, and a
+        # plausible operating level for a dam cycling between MDDL 740 m and FRL
+        # 830 m. One to two cells SOUTH the bed rises to a ridge at 832.1 m
+        # (90 m) / 834.7 m (30 m): the crest, correctly above FRL by roughly its
+        # freeboard. Beyond it the bed collapses to 792-810 m, the tailrace. No
+        # wrong coordinate produces reservoir-then-crest-then-tailrace in the
+        # right order.
+        #
+        # Two consequences for any run, both load-bearing:
+        #   1. The DEM's reservoir is at 814.0 m, NOT at FRL. A scenario that
+        #      wants water at FRL must say so; it cannot read it off the terrain.
+        #   2. At 90 m the crest is only partly above FRL (cells at 829.8 and
+        #      828.6 m). Initialising a live pool at 830.0 m therefore SPILLS at
+        #      90 m while holding at 30 m -- a setup whose behaviour changes with
+        #      resolution. See scenario/run.py, which initialises the pool at the
+        #      DEM's own 814.0 m surface (a well-balanced lake at rest) and takes
+        #      breach mass from the lumped reservoir model instead.
         lat=30.378611, lon=78.480000,
         dam_type="earth-core rockfill embankment",
         height_m=260.5,
@@ -526,8 +560,17 @@ RISHI_GANGA = StudyArea(
     ),
     domain=Domain(
         crs=UTM44N,
-        xmin=280_000.0, ymin=3_360_000.0,
-        xmax=340_000.0, ymax=3_400_000.0,
+        # The box previously carried here (x 280-340 km) did NOT contain the
+        # event or any downstream POI: the avalanche source sits at UTM
+        # (377_980, 3_361_910) and Joshimath at (362_367, 3_381_163), all east
+        # of the old xmax=340_000. That was the SAME class of copy-paste slip
+        # the latitude comment below records — a box for some other place. This
+        # box brackets the source and all three POIs (Raini, Tapovan, Joshimath)
+        # with a ~4 km buffer, snapped to the 90 m interactive grid. Verified by
+        # scripts/diag_rishi_domain.py; no DEM had been fetched against the old
+        # box, so nothing downstream was contaminated.
+        xmin=358_290.0, ymin=3_357_900.0,
+        xmax=382_050.0, ymax=3_385_170.0,
         dx_interactive_m=90.0,
         dx_highres_m=30.0,
     ),

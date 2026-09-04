@@ -1,0 +1,145 @@
+/*
+ * JALDRISHTI — Global styles
+ *
+ * Imports the design tokens and establishes the base CSS floor.
+ * Component styles live in components.css.
+ * Landing register styles live in landing.css.
+ * Console register styles live in console.css.
+ */
+
+/* Design tokens — the single source of truth for every value */
+@import "../../design/tokens.css";
+
+/* Component classes */
+@import "./components.css";
+
+/* Landing styles */
+@import "./landing.css";
+
+/* Console styles */
+@import "./console.css";
+
+/* ---- Reset ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ---- Page-level layout ---- */
+.page-container {
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* ---- Prose constraint (§2.4) ---- */
+.prose {
+  max-width: var(--measure-prose);
+}
+
+.prose-narrow {
+  max-width: var(--measure-narrow);
+}
+
+/* ---- Separator rule ---- */
+.rule {
+  border: none;
+  border-top: var(--rule-hairline) solid var(--color-rule);
+}
+
+.rule-strong {
+  border: none;
+  border-top: var(--rule-heavy) solid var(--color-rule-strong);
+}
+
+/* ---- Visually hidden (a11y) ---- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* ---- Section spacing ---- */
+.section {
+  padding-block: var(--space-3xl);
+}
+
+.section-lg {
+  padding-block: var(--space-4xl);
+}
+
+/* ---- Grid utilities ---- */
+.grid-auto {
+  display: grid;
+  gap: var(--gutter);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+/* ---- Link reset ---- */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ---- Image reset ---- */
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ---- Table base ---- */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th,
+td {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: var(--rule-hairline) solid var(--color-rule);
+}
+
+th {
+  font-weight: var(--weight-semi);
+  font-size: var(--text-sm);
+  color: var(--color-ink-2);
+}
+
+/* ---- Scrollbar styling (console dark mode) ---- */
+[data-register="console"][data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-register="console"][data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--color-paper-2);
+}
+
+[data-register="console"][data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--color-rule-strong);
+  border-radius: var(--radius-pill);
+}
+
+/* ---- Mobile guards (§14.13) ---- */
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .hide-desktop {
+    display: none !important;
+  }
+}

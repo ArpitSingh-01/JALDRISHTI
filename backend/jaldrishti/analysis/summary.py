@@ -98,6 +98,7 @@ class ScenarioSummary:
     steps: int = 0
     volume_error: float = 0.0
     dem_valid_mask: np.ndarray | None = None
+    reportable_mask: np.ndarray | None = None
     solver_settings: dict = field(default_factory=dict)
     terrain_provenance: dict = field(default_factory=dict)
     breach_provenance: dict = field(default_factory=dict)
@@ -141,13 +142,70 @@ class ScenarioSummary:
         return self.hazard.flooded_area_km2
 
     @property
+    def report_mask(self) -> np.ndarray:
+        """
+        Flooded cells whose depth and velocity may be quoted as a result.
+
+        Excludes two zones that are dominated by how the MODEL is set up rather
+        than by the terrain, and that the limitations already disclaim:
+
+          * the near-field breach source, where a finite hydrograph forced into
+            a handful of cells produces depths and speeds that are a property of
+            the source spreading, not of the flood; and
+          * the open-boundary buffer, where the transmissive condition perturbs
+            the solution.
+
+        A peak taken over the whole flood mask is, at Tehri, a pile-up cell at
+        the injection point standing higher than the dam crest — the single most
+        eye-catching number in the run and the one number the limitations say
+        must not be quoted. This mask is what keeps the headline honest. If no
+        reportable mask was supplied, every flooded cell is quotable, so older
+        callers are unaffected.
+        """
+        fm = self.flood_mask
+        if self.reportable_mask is None:
+            return fm
+        return fm & np.asarray(self.reportable_mask, dtype=bool)
+
+    @property
+    def _excluded_flood_mask(self) -> np.ndarray | None:
+        """Flooded cells that are NOT reportable — the near-field/edge zone."""
+        if self.reportable_mask is None:
+            return None
+        return self.flood_mask & ~np.asarray(self.reportable_mask, dtype=bool)
+
+    @property
     def peak_depth_m(self) -> float:
-        m = self.max_depth[self.flood_mask]
+        m = self.max_depth[self.report_mask]
         return float(m.max()) if m.size else 0.0
 
     @property
     def peak_speed_ms(self) -> float:
-        m = self.max_speed[self.flood_mask]
+        m = self.max_speed[self.report_mask]
+        return float(m.max()) if m.size else 0.0
+
+    @property
+    def peak_depth_nearfield_m(self) -> float:
+        """
+        The raw peak depth in the excluded zone — reported, not hidden.
+
+        Surfacing it is the honest move: a reader can see how large the source
+        artefact is and why it is set aside, instead of wondering whether a
+        suspiciously round headline number was quietly trimmed.
+        """
+        nf = self._excluded_flood_mask
+        if nf is None:
+            return 0.0
+        m = self.max_depth[nf]
+        return float(m.max()) if m.size else 0.0
+
+    @property
+    def peak_speed_nearfield_ms(self) -> float:
+        """The raw peak speed in the excluded zone — reported, not hidden."""
+        nf = self._excluded_flood_mask
+        if nf is None:
+            return 0.0
+        m = self.max_speed[nf]
         return float(m.max()) if m.size else 0.0
 
     @property
@@ -165,6 +223,21 @@ class ScenarioSummary:
 
     # ---- honesty machinery ----------------------------------------------
     @property
+    def _has_open_boundary(self) -> bool:
+        """
+        True if any solver boundary was 'open'.
+
+        A NEGATIVE volume error on an open domain is legitimate outflow — the
+        flood exiting the far end of the domain — not a conservation failure, so
+        the release gate must not treat it as one. `run.py` already applies this
+        one-sided logic; this keeps the summary consistent with it. When the bc
+        is unrecorded the domain is assumed WALLED, the conservative reading: an
+        unexplained loss is not excused just because the setup was not recorded.
+        """
+        bc = self.solver_settings.get("bc") if self.solver_settings else None
+        return bool(bc) and "open" in bc
+
+    @property
     def limitations(self) -> list[str]:
         """Every caveat from every stage, order-preserving and deduplicated."""
         out: list[str] = []
@@ -177,11 +250,20 @@ class ScenarioSummary:
                 if text not in out:
                     out.append(text)
 
-        if self.volume_error and abs(self.volume_error) > 1.0e-6:
-            out.append(
-                f"Mass conservation error over the run was "
-                f"{self.volume_error:+.2e} (relative). Anything above 1e-6 "
-                f"warrants investigation before the result is used.")
+        ve = self.volume_error
+        if ve and abs(ve) > 1.0e-6:
+            if ve < 0.0 and self._has_open_boundary:
+                out.append(
+                    f"Over the run {-ve * 100.0:.1f}% of total throughput left "
+                    f"through the open boundary (relative volume change "
+                    f"{ve:+.2e}). For a routing run whose flood is meant to exit "
+                    f"the domain this is expected outflow, not a conservation "
+                    f"error.")
+            else:
+                out.append(
+                    f"Mass conservation error over the run was {ve:+.2e} "
+                    f"(relative). Anything above 1e-6 warrants investigation "
+                    f"before the result is used.")
 
         interp = self.interpolated_flooded_cells
         if interp:
@@ -232,9 +314,15 @@ class ScenarioSummary:
         if self.damage is not None:
             reasons.append(
                 "monetary damage figures are order-of-magnitude only")
-        if abs(self.volume_error) > 1.0e-6:
+        ve = self.volume_error
+        if ve > 1.0e-6:
             reasons.append(
-                f"mass conservation error {self.volume_error:+.2e} exceeds 1e-6")
+                f"mass conservation error {ve:+.2e} is a spurious volume GAIN "
+                f"(exceeds 1e-6); water cannot appear from nowhere")
+        elif ve < -1.0e-6 and not self._has_open_boundary:
+            reasons.append(
+                f"mass conservation error {ve:+.2e} on a fully walled domain "
+                f"(exceeds 1e-6), where no water can leave")
         if self.exposure is not None:
             rep = getattr(self.exposure, "resample_report", {}) or {}
             if rep and not rep.get("conserved", True):
@@ -282,6 +370,10 @@ class ScenarioSummary:
             f"(total wetted {self.total_wetted_area_km2:.2f} km^2)",
             f"peak depth    : {self.peak_depth_m:.2f} m",
             f"peak speed    : {self.peak_speed_ms:.2f} m/s",
+            (f"near-field    : {self.peak_depth_nearfield_m:.2f} m / "
+             f"{self.peak_speed_nearfield_ms:.2f} m/s  (source zone — NOT "
+             f"reportable)")
+            if self.reportable_mask is not None else "",
             f"mass error    : {self.volume_error:+.2e}",
             "",
             self.hazard.summary(),
@@ -337,6 +429,8 @@ class ScenarioSummary:
                 "total_wetted_area_km2": self.total_wetted_area_km2,
                 "peak_depth_m": self.peak_depth_m,
                 "peak_speed_ms": self.peak_speed_ms,
+                "peak_depth_nearfield_m": self.peak_depth_nearfield_m,
+                "peak_speed_nearfield_ms": self.peak_speed_nearfield_ms,
                 "first_arrival_min": self.arrival.first_arrival_minutes(),
                 "last_arrival_min": self.arrival.last_arrival_minutes(),
                 "area_by_hazard_km2": self.hazard.area_by_defra_class_km2(),

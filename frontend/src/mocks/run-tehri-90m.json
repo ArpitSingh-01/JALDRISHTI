@@ -1,0 +1,105 @@
+{
+  "run_id": "mock-tehri-90m-0001",
+  "study_area": "tehri",
+  "scenario": "instantaneous full breach",
+  "headline": "instantaneous full breach at tehri floods 210 km²; first arrival 12 min after failure; about 68,000 people exposed.",
+  "grid": {
+    "shape": [702, 649],
+    "dx_m": 90.0,
+    "crs": "EPSG:32644",
+    "transform": [90.0, 0.0, 600000.0, 0.0, -90.0, 3400000.0]
+  },
+  "run": {
+    "duration_s": 21600.0,
+    "wall_time_s": 96.0,
+    "steps": 41200,
+    "volume_error": 3.1e-9,
+    "solver": { "cfl": 0.4, "riemann": "HLLC" }
+  },
+  "results": {
+    "flooded_area_km2": 210.0,
+    "total_wetted_area_km2": 262.0,
+    "peak_depth_m": 48.2,
+    "peak_speed_ms": 14.6,
+    "first_arrival_min": 12.0,
+    "last_arrival_min": 143.0,
+    "area_by_hazard_km2": {
+      "Low": 41.0,
+      "Moderate": 58.0,
+      "Significant": 62.0,
+      "Extreme": 49.0
+    },
+    "area_by_aidr_class_km2": {
+      "H1": 22.0,
+      "H2": 30.0,
+      "H3": 41.0,
+      "H4": 44.0,
+      "H5": 40.0,
+      "H6": 33.0
+    },
+    "area_by_arrival_band_km2": {
+      "0-15 min": 34.0,
+      "15-30 min": 47.0,
+      "30-60 min": 58.0,
+      "60-120 min": 51.0,
+      ">120 min": 20.0
+    },
+    "interpolated_flooded_cells": 1840,
+    "exposure": {
+      "total_population": 68420,
+      "reported_population": 68000,
+      "by_hazard": {
+        "Low": 9000,
+        "Moderate": 17000,
+        "Significant": 22000,
+        "Extreme": 20000
+      },
+      "by_arrival_band": {
+        "0-15 min": 15000,
+        "15-30 min": 19000,
+        "30-60 min": 18000,
+        "60-120 min": 12000,
+        ">120 min": 4000
+      },
+      "cross_tab": {
+        "Extreme|0-15 min": 8000,
+        "Significant|15-30 min": 7000
+      },
+      "infrastructure": {
+        "buildings": 14200,
+        "road_km": 88.0,
+        "hospitals": 3,
+        "schools": 21
+      },
+      "resample_report": {
+        "conserved": true,
+        "residual_fraction": 0.002
+      }
+    }
+  },
+  "provenance": {
+    "terrain": {
+      "dem": "MERIT/SRTM (mock)",
+      "conditioning": ["pit-fill", "burn-streams"]
+    },
+    "breach": {
+      "mode": "parametric",
+      "width_m": 600,
+      "depth_m": 230,
+      "formation_s": 3600
+    }
+  },
+  "honesty": {
+    "presentable_as_fact": false,
+    "blocking_reasons": [
+      "11 input citation(s) are not verified against a primary source"
+    ],
+    "unverified_inputs": [
+      "Tehri reservoir gross storage 3.54e9 m³ (source not yet verified)"
+    ],
+    "limitations": [
+      "Arrival time is measured from failure and is NOT warning time.",
+      "1,840 flooded cells (0.9%) sit on interpolated DEM terrain; depths there are weaker evidence."
+    ]
+  }
+}
