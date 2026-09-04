@@ -29,6 +29,11 @@ import matplotlib  # noqa: E402
 matplotlib.use("Agg")
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "slow: full simulation validation, ~1 min (SPH benchmark)")
+
+
 @pytest.fixture(scope="session")
 def chart_dir() -> Path:
     """

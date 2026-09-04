@@ -347,6 +347,10 @@ def run_scenario(
     snap_radius_m=2500.0,
     reservoir=True,
     crest_m=None,
+    failure_mode="breach",
+    release_head_m=15.0,
+    release_width_m=80.0,
+    release_formation_s=600.0,
     population=DEFAULT_POPULATION,
     exposure=True,
     damage=False,
@@ -508,7 +512,17 @@ def run_scenario(
     hyd = None
     inflow_cells = None
     breach_prov: dict = {}
-    if area.dam is not None and area.breach is not None:
+    if failure_mode == "water_release":
+        hyd, inflow_cells, bprov, blims, bunv = _build_release(
+            area, grid, hydro, pool, fj, fi, dx=dx,
+            snap_radius_m=snap_radius_m, crest_m=crest_m,
+            release_head_m=release_head_m, release_width_m=release_width_m,
+            formation_time_s=release_formation_s, verbose=verbose)
+        breach_prov = bprov
+        limitations.extend(blims)
+        unverified.extend(bunv)
+        setup["release"] = bprov
+    elif area.dam is not None and area.breach is not None:
         hyd, inflow_cells, bprov, blims, bunv = _build_breach(
             area, grid, hydro, pool, fj, fi, dx=dx,
             snap_radius_m=snap_radius_m, crest_m=crest_m, verbose=verbose)
@@ -522,6 +536,15 @@ def run_scenario(
                 "entering a tributary rather than the trunk river. Every "
                 "downstream figure inherits this doubt.")
         setup["breach"] = bprov
+    elif area.dam is None and area.blockage is not None \
+            and area.breach is not None:
+        hyd, inflow_cells, bprov, blims, bunv = _build_blockage(
+            area, grid, hydro, pool, fj, fi, dx=dx,
+            snap_radius_m=snap_radius_m, verbose=verbose)
+        breach_prov = bprov
+        limitations.extend(blims)
+        unverified.extend(bunv)
+        setup["blockage"] = bprov
     else:
         limitations.append(
             "No dam-breach hydrograph was applied: this study area has no "
@@ -957,6 +980,295 @@ def _build_breach(area, grid, hydro, pool, fj, fi, *, dx, snap_radius_m,
     prov["direction"] = direction
     if verbose:
         print(f"  inject direction (di, dj) = {direction}")
+
+    return hyd, cells, prov, lims, unverified
+
+
+def _build_release(area, grid, hydro, pool, fj, fi, *, dx, snap_radius_m,
+                   crest_m, release_head_m, release_width_m,
+                   formation_time_s, verbose):
+    """
+    Build Q(t) for a WATER RELEASE scenario (the PS's "water release" case,
+    distinct from dam break).
+
+    Representation: a weir-equivalent gated spillway release. The gates open
+    over `formation_time_s`, spilling over an effective width
+    `release_width_m` under an acting head `release_head_m` below the crest,
+    while the reservoir draws down through the same storage curve the breach
+    uses. This is NOT a breach: the dam stands, the invert stays high, and the
+    hydrograph ends when the level reaches the gate sill.
+
+    Gate operations are dam-specific; the numbers here are a scenario
+    generator, not an operational schedule, and the limitations block says
+    so. The stored water released is a small fraction of the reservoir, so
+    the constant-area bias discussed in `simulate_breach` is negligible here.
+    """
+    dam = area.dam
+    prov: dict = {}
+    lims: list[str] = []
+    unverified: list[str] = []
+
+    frl = _val(dam.frl_m)
+    height = _val(dam.height_m)
+    gross = _val(dam.gross_storage_m3)
+    res_area = _maybe(dam.reservoir_area_m2)
+    if crest_m is None:
+        crest_m = frl + 5.0
+        prov["crest_source"] = "FRL + 5 m assumed freeboard"
+    crest_m = float(crest_m)
+    bed_m = crest_m - height
+    # Gate sill: `release_head_m` below the operating level, but never below
+    # the original streambed.
+    invert = max(crest_m - float(release_head_m), bed_m)
+    acting_head = crest_m - invert
+    bottom = float(release_width_m)
+
+    geom = BreachGeometry(
+        bottom_width_m=bottom, invert_m=invert, side_slope=0.0,
+        formation_time_s=float(formation_time_s), growth="linear",
+        crest_length_m=None)
+    storage = ReservoirStorage.power_law(
+        bed_m=bed_m, full_level_m=frl, volume_m3=gross, area_m2=res_area)
+    hyd = simulate_breach(
+        crest_m=crest_m, initial_level_m=frl, geom=geom, storage=storage,
+        bed_m=bed_m, t_max=12 * 3600.0)
+
+    radius = max(8, int(round(snap_radius_m / dx)))
+    sj, si, inj_info = _find_injection_cell(
+        grid, hydro, pool, fj, fi, radius_cells=radius, verbose=verbose)
+    prov["injection"] = inj_info
+    prov["inflow_cell"] = [int(sj), int(si)]
+    n_cells = max(1, int(round(bottom / dx)))
+    cells, reach_m = _injection_footprint(hydro, pool, sj, si, n_cells, dx=dx)
+    prov["inflow_cells"] = [[int(a), int(b)] for a, b in cells]
+    prov["inflow_cell_count"] = len(cells)
+    prov["inflow_reach_m"] = reach_m
+
+    prov.update({
+        "mode": "water_release",
+        "crest_m": crest_m, "invert_m": invert, "bed_m": bed_m,
+        "acting_head_m": acting_head,
+        "release_width_m": bottom,
+        "formation_time_s": float(formation_time_s),
+        "initial_level_m": frl,
+        "peak_q_m3s": float(hyd.peak_q),
+        "t_peak_s": float(hyd.t_peak),
+        "released_volume_m3": float(hyd.released_volume_m3),
+        "peak_outlet_velocity_ms": float(hyd.peak_velocity),
+    })
+
+    lims.append(
+        f"WATER RELEASE SCENARIO: a gated spillway release modelled as weir "
+        f"flow over a {bottom:.0f} m effective width under {acting_head:.0f} m "
+        f"of head, gates opening over {formation_time_s / 60:.0f} minutes. "
+        f"Gate operations are dam-specific; this is a scenario generator, not "
+        f"an operational schedule, and the hydrograph shape depends on those "
+        f"three assumptions.")
+    if verbose:
+        print(f"  release: {bottom:.0f} m width, {acting_head:.0f} m head, "
+              f"gates over {formation_time_s / 60:.0f} min")
+        print(f"  peak Q {hyd.peak_q:,.0f} m3/s at t = "
+              f"{hyd.t_peak / 60:.1f} min, released "
+              f"{hyd.released_volume_m3 / 1e6:.1f} x 10^6 m3")
+
+    direction = None
+    try:
+        js, is_, _ = hydro.trace_downstream(sj, si, max_len=2)
+        if len(js) >= 2:
+            dj, di = int(js[1]) - sj, int(is_[1]) - si
+            norm = float(np.hypot(di, dj))
+            if norm > 0:
+                direction = (di / norm, dj / norm)
+    except Exception:
+        direction = None
+    prov["direction"] = direction
+
+    return hyd, cells, prov, lims, unverified
+
+
+def _valley_width_m(grid, fj, fi, *, dx, relief_m=25.0, half_span_cells=40):
+    """
+    Measure the valley-floor width on an east-west transect through row `fj`.
+
+    The floor is the contiguous run of cells around the transect minimum whose
+    elevation is within `relief_m` of that minimum. A transect through a
+    Himalayan gorge crosses the valley cleanly, so this is a direct DEM
+    measurement rather than an assumption; if the transect is ambiguous (flat
+    plateau, minimum on the window edge) the function returns None and the
+    caller falls back to a flagged default.
+    """
+    j = int(np.clip(fj, 0, grid.shape[0] - 1))
+    i0 = max(0, fi - half_span_cells)
+    i1 = min(grid.shape[1], fi + half_span_cells + 1)
+    transect = grid.z[j, i0:i1]
+    if transect.size < 5:
+        return None
+    i_min = int(np.argmin(transect))
+    if i_min == 0 or i_min == transect.size - 1:
+        return None  # minimum on the window edge: transect did not cross
+    floor = transect < (transect[i_min] + relief_m)
+    # contiguous run containing the minimum
+    left = i_min
+    while left > 0 and floor[left - 1]:
+        left -= 1
+    right = i_min
+    while right < floor.size - 1 and floor[right + 1]:
+        right += 1
+    return (right - left + 1) * dx
+
+
+def _build_blockage(area, grid, hydro, pool, fj, fi, *, dx, snap_radius_m,
+                    verbose):
+    """
+    Build Q(t) for a RIVER BLOCKAGE scenario (the Chamoli requirement).
+
+    The physical sequence modelled — stated plainly, because it is NOT a
+    reproduction of the 2021 hydrograph (see config.trigger_note):
+
+      1. A debris deposit of volume V_d (blockage.source_volume_m3) dams the
+         valley. The deposit's cross-section area follows from V_d spread over
+         the observed ~700 m impoundment length (Shugar et al. 2021).
+      2. The deposit height follows from that cross-section area and the
+         valley-floor width MEASURED off the DEM transect at the site
+         (trapezoidal section, 0.3W bottom to W top).
+      3. The river impounds behind the deposit to the crest (overtopping
+         failure, per BreachSpec.mode). The impounded volume is the lake
+         geometry estimate: surface area W x L, mean depth 0.4 h.
+      4. The breach is routed with the same weir + storage machinery as a dam
+         break (`simulate_breach`), with a debris-typical side slope and a
+         fast formation time. Both are assumptions and are flagged.
+
+    The debris-flow rheology caveat is inherited from config.limitations and
+    is NOT repeated numerically here: this module releases clear water through
+    a weir, which approximates the water-led phase of the event only.
+    """
+    blk = area.blockage
+    spec = area.breach
+    prov: dict = {}
+    lims: list[str] = []
+    unverified: list[str] = []
+
+    v_deposit = float(blk.source_volume_m3)
+    dam_length_m = 700.0   # Shugar et al. 2021: ~700 m impoundment behind the deposit
+    x_sec = v_deposit / dam_length_m
+
+    w_valley = _valley_width_m(grid, fj, fi, dx=dx)
+    if w_valley is None or w_valley < 3 * dx:
+        w_valley = max(300.0, 4 * dx)
+        unverified.append(
+            f"Blockage valley width: the DEM transect at the deposit was "
+            f"ambiguous, so {w_valley:.0f} m was assumed. Every breach "
+            f"geometry figure inherits this.")
+    else:
+        prov["valley_width_source"] = "DEM transect at the deposit"
+
+    z_bed = float(grid.z[fj, fi])
+    # Trapezoidal deposit cross-section: 0.3W bottom, W top.
+    h_dam = x_sec / (0.65 * w_valley)
+    crest_m = z_bed + h_dam
+
+    # Impoundment to the crest (overtopping trigger).
+    v_impound = 0.4 * h_dam * w_valley * dam_length_m
+    area_lake = w_valley * dam_length_m
+
+    # Breach geometry: debris-typical side slope, fast failure.
+    side = 1.5
+    t_form = 600.0
+    bottom = max_bottom_width(w_valley, h_dam, side)
+    geom = BreachGeometry(
+        bottom_width_m=0.3 * w_valley, invert_m=z_bed, side_slope=side,
+        formation_time_s=t_form, growth="linear", crest_length_m=w_valley)
+    try:
+        geom.check_fits(crest_m)
+    except ValueError as e:
+        lims.append(f"Blockage breach geometry clamped: {e}")
+        geom = BreachGeometry(
+            bottom_width_m=bottom, invert_m=z_bed, side_slope=side,
+            formation_time_s=t_form, growth="linear",
+            crest_length_m=w_valley)
+
+    storage = ReservoirStorage.power_law(
+        bed_m=z_bed, full_level_m=crest_m, volume_m3=v_impound,
+        area_m2=area_lake)
+    hyd = simulate_breach(
+        crest_m=crest_m, initial_level_m=crest_m, geom=geom,
+        storage=storage, bed_m=z_bed, t_max=4 * 3600.0)
+
+    # Injection cells: same channel-snapping and footprint treatment as a dam
+    # breach, so the two scenario kinds are comparable.
+    radius = max(8, int(round(snap_radius_m / dx)))
+    sj, si, inj_info = _find_injection_cell(
+        grid, hydro, pool, fj, fi, radius_cells=radius, verbose=verbose)
+    prov["injection"] = inj_info
+    prov["inflow_cell"] = [int(sj), int(si)]
+
+    top_width = 0.3 * w_valley + 2.0 * side * h_dam
+    n_cells = max(1, int(round(top_width / dx)))
+    cells, reach_m = _injection_footprint(hydro, pool, sj, si, n_cells, dx=dx)
+    prov["inflow_cells"] = [[int(a), int(b)] for a, b in cells]
+    prov["inflow_cell_count"] = len(cells)
+    prov["inflow_reach_m"] = reach_m
+
+    prov.update({
+        "mode": "blockage-overtopping",
+        "deposit_volume_m3": v_deposit,
+        "impoundment_length_m": dam_length_m,
+        "valley_width_m": w_valley,
+        "deposit_height_m": h_dam,
+        "crest_m": crest_m, "bed_m": z_bed, "invert_m": z_bed,
+        "impounded_volume_m3": v_impound,
+        "impounded_area_m2": area_lake,
+        "bottom_width_m": float(geom.bottom_width_m),
+        "side_slope": side,
+        "formation_time_s": t_form, "growth": "linear",
+        "peak_q_m3s": float(hyd.peak_q),
+        "t_peak_s": float(hyd.t_peak),
+        "released_volume_m3": float(hyd.released_volume_m3),
+        "peak_outlet_velocity_ms": float(hyd.peak_velocity),
+    })
+
+    lims.append(
+        f"BLOCKAGE SCENARIO, NOT A RECONSTRUCTION. The 2021 Chamoli event was "
+        f"a direct rock-ice avalanche into the channel, not the breach of a "
+        f"long-lived lake. This run models the generic blockage-and-breach "
+        f"sequence the problem statement asks for: a {v_deposit / 1e6:.1f} "
+        f"x 10^6 m3 deposit dams a {w_valley:.0f} m valley to {h_dam:.0f} m "
+        f"high, the river impounds behind it, and the overtopping breach "
+        f"releases an estimated {v_impound / 1e6:.1f} x 10^6 m3. Compare with "
+        f"the observed 8,000-14,000 m3/s at Raini as an order-of-magnitude "
+        f"check only.")
+    lims.append(
+        f"The breach formation time ({t_form / 60:.0f} min) and side slope "
+        f"(1:{side}) are assumptions typical of debris dams; no site-specific "
+        f"value exists. Formation time is the parameter that most changes "
+        f"the peak.")
+    unverified.append(
+        "Blockage impounded volume: estimated from lake geometry (area W x L, "
+        "mean depth 0.4 h), not measured. The DEM shows the post-event terrain, "
+        "so no impoundment exists in it to measure.")
+
+    if verbose:
+        print(f"  deposit {v_deposit / 1e6:.1f} x 10^6 m3 over "
+              f"{dam_length_m:.0f} m -> {h_dam:.0f} m high in a "
+              f"{w_valley:.0f} m valley")
+        print(f"  impounded ~{v_impound / 1e6:.1f} x 10^6 m3 to crest "
+              f"{crest_m:.0f} m")
+        print(f"  peak Q {hyd.peak_q:,.0f} m3/s at t = "
+              f"{hyd.t_peak / 60:.1f} min, released "
+              f"{hyd.released_volume_m3 / 1e6:.1f} x 10^6 m3")
+
+    # Flow direction at the injection cell, same as the dam-breach path.
+    direction = None
+    try:
+        js, is_, _ = hydro.trace_downstream(sj, si, max_len=2)
+        if len(js) >= 2:
+            dj, di = int(js[1]) - sj, int(is_[1]) - si
+            norm = float(np.hypot(di, dj))
+            if norm > 0:
+                direction = (di / norm, dj / norm)
+    except Exception:
+        direction = None
+    prov["direction"] = direction
 
     return hyd, cells, prov, lims, unverified
 
