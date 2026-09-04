@@ -132,9 +132,14 @@ def settlements_fc(bundle: Path, area: Any) -> dict[str, Any]:
             "name": poi.name,
             "kind": getattr(poi, "kind", "settlement"),
             "flooded": False,
-            "arr_min": None,
-            "depth_m": None,
-            "speed_ms": None,
+            # Unflooded sentinel conventions match the UI contract: -1 =
+            # "NOT REACHED", numeric zeros render as "0.0" beside the
+            # "Safe (Unflooded)" label.
+            "arr_min": -1,
+            "depth_m": 0,
+            "speed_ms": 0,
+            "haz_class": "none",
+            "band": -1,
         }
         if "arrival_time_min" in rasters:
             src = rasters["arrival_time_min"]
@@ -145,18 +150,45 @@ def settlements_fc(bundle: Path, area: Any) -> dict[str, Any]:
                 if arr >= 0:
                     props["flooded"] = True
                     props["arr_min"] = round(arr, 1)
+                    depth = speed = None
                     if "max_depth_m" in rasters:
                         dsrc = rasters["max_depth_m"]
                         drow, dcol = (int(v) for v in dsrc.index(xm, ym))
                         if 0 <= drow < dsrc.height and 0 <= dcol < dsrc.width:
                             d = float(dsrc.read(1)[drow, dcol])
-                            props["depth_m"] = round(d, 2) if d > 0 else None
+                            if d > 0:
+                                depth = d
+                                props["depth_m"] = round(d, 2)
                     if "max_speed_ms" in rasters:
                         ssrc = rasters["max_speed_ms"]
                         srow, scol = (int(v) for v in ssrc.index(xm, ym))
                         if 0 <= srow < ssrc.height and 0 <= scol < ssrc.width:
                             s = float(ssrc.read(1)[srow, scol])
-                            props["speed_ms"] = round(s, 2) if s > 0 else None
+                            if s > 0:
+                                speed = s
+                                props["speed_ms"] = round(s, 2)
+                    if depth is not None:
+                        # DEFRA classification, the same scheme the hazard
+                        # raster in this bundle uses — the settlement table
+                        # and the map can never disagree.
+                        from ..analysis.hazard import (
+                            DEFRA_CLASS_NAMES,
+                            defra_hazard_class,
+                            defra_hazard_rating,
+                        )
+
+                        hr = defra_hazard_rating(
+                            float(depth), float(speed or 0.0))
+                        cls = int(defra_hazard_class(
+                            np.array([[hr]]))[0, 0])
+                        props["haz_class"] = str(
+                            DEFRA_CLASS_NAMES[min(cls, len(DEFRA_CLASS_NAMES) - 1)])
+                    if props.get("arr_min") is not None:
+                        from ..analysis.arrival import band_index
+
+                        props["band"] = int(band_index(
+                            np.array([props["arr_min"]]),
+                            initially_wet=np.array([False]))[0])
         features_out.append({
             "type": "Feature",
             "properties": props,

@@ -64,9 +64,16 @@ export async function getRuns(): Promise<RunListItem[]> {
 }
 
 export async function getRun(runId: string): Promise<ScenarioSummary> {
-  // /result carries the run's full metadata.json — the contract type in
-  // types.ts mirrors exactly this document.
-  return getJson<ScenarioSummary>(`/api/runs/${runId}/result`);
+  // /result returns the run's metadata.json: {scenario: {...}, honesty, ...}.
+  // The UI's ScenarioSummary contract mirrors the scenario block flattened
+  // one level, with honesty/provenance as siblings.
+  const meta = await getJson<Record<string, unknown>>(`/api/runs/${runId}/result`);
+  const scenario = (meta.scenario ?? {}) as Record<string, unknown>;
+  return {
+    ...scenario,
+    honesty: (meta.honesty ?? {}) as ScenarioSummary["honesty"],
+    provenance: (meta.provenance ?? {}) as ScenarioSummary["provenance"],
+  } as ScenarioSummary;
 }
 
 function mapRunListItem(s: Record<string, unknown>): RunListItem {
